@@ -84,6 +84,10 @@ jobs:
             if ($tag -ne "v$version") {
               throw "Tag $tag does not match vidgrab.__version__ ($version)"
             }
+            # Fail before the long build, not after it.
+            if (-not (Test-Path "docs/release-notes/$tag.md")) {
+              throw "Missing release notes: docs/release-notes/$tag.md"
+            }
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "VidGrab $version"
@@ -161,13 +165,39 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Check release notes
+        run: |
+          notes="docs/release-notes/${TAG}.md"
+          if [ ! -s "$notes" ]; then
+            echo "::error::Missing or empty release notes: $notes"
+            exit 1
+          fi
+
       - uses: actions/download-artifact@v4
         with:
           pattern: VidGrab-*-win64
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: VidGrab-*-win64.zip
-          generate_release_notes: true
+      # Releases are usually created in the GitHub UI (this session cannot push tags), with
+      # the notes pasted in. Then only attach the zip and leave the title and body alone.
+      # A release that doesn't exist yet is created from the notes file.
+      - name: Publish release
+        run: |
+          shopt -s failglob
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG exists: uploading the zip only (title and notes unchanged)"
+            gh release upload "$TAG" VidGrab-*-win64.zip --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            echo "Creating release $TAG from docs/release-notes/${TAG}.md"
+            gh release create "$TAG" VidGrab-*-win64.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "VidGrab ${TAG}" \
+              --notes-file "docs/release-notes/${TAG}.md"
+          fi
