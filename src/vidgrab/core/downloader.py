@@ -29,8 +29,21 @@ from vidgrab import strings
 from vidgrab.core.audiofix import CommandRunner, ensure_mp4_audio, run_command
 from vidgrab.core.binaries import Binaries
 from vidgrab.core.errors import ErrorKind, UserError, classify
-from vidgrab.core.formats import exclude_format_ids, format_options
-from vidgrab.core.models import DownloadRequest, Phase, Progress, Quality, VideoContainer
+from vidgrab.core.formats import (
+    actual_height,
+    exclude_format_ids,
+    format_options,
+    requested_height,
+    video_height,
+)
+from vidgrab.core.models import (
+    DownloadRequest,
+    DownloadResult,
+    Phase,
+    Progress,
+    Quality,
+    VideoContainer,
+)
 from vidgrab.core.options import OUTPUT_TEMPLATE, YdlFactory, base_options, default_ydl_factory
 from vidgrab.core.staging import MOVE_BACKOFF_S, move_to_destination, staging_dir
 
@@ -62,6 +75,8 @@ class _Tracker:
     def __init__(self, on_progress: ProgressCallback, cancel_event: threading.Event) -> None:
         self.on_progress = on_progress
         self.cancel_event = cancel_event
+        # Video heights any attempt started downloading (kept across 403 retries).
+        self.attempted_heights: list[int] = []
         self.reset()
 
     def reset(self) -> None:
@@ -80,6 +95,8 @@ class _Tracker:
         info = d.get("info_dict") or {}
         if info.get("format_id"):
             self.current_format_id = str(info["format_id"])
+        if (height := video_height(info)) and height not in self.attempted_heights:
+            self.attempted_heights.append(height)
         filename = d.get("filename")
         if filename and filename not in self.streams:
             self.streams.append(filename)
@@ -230,8 +247,11 @@ def download(
     job_id: int | None = None,
     staging_root: Path | None = None,
     policy: RetryPolicy | None = None,
-) -> Path | None:
-    """Download one video into ``request.output_dir``. Returns the final path (if any).
+) -> DownloadResult:
+    """Download one video into ``request.output_dir``.
+
+    Returns the final path plus the requested and actual video height, so the UI can flag
+    a lower resolution than asked for (e.g. after the 403 fallback).
 
     Raises UserError. Every call does a full, fresh ``extract_info``; nothing is cached,
     so a retry from the UI always gets new URLs.
@@ -261,7 +281,7 @@ def download(
             staged = _final_path(info, tracker)
             if staged is None:
                 log.warning("yt-dlp reported no output file for %s", request.url)
-                return None
+                return DownloadResult(None)
             if _wants_mp4_audio_check(request):
                 tracker.check_cancel()
                 on_progress(Progress(phase=Phase.POSTPROCESSING))
@@ -286,5 +306,17 @@ def download(
             )
         raise err from exc
 
+    result = DownloadResult(
+        path,
+        requested_height=requested_height(request.quality, info, tracker.attempted_heights),
+        actual_height=actual_height(info),
+    )
+    if result.downgraded:
+        log.warning(
+            "Lower resolution than requested for %s: got %sp, wanted %sp",
+            request.url,
+            result.actual_height,
+            result.requested_height,
+        )
     log.info("Download finished: %s -> %s", request.url, path)
-    return path
+    return result

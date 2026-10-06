@@ -220,3 +220,47 @@ def test_exclude_format_ids_selects_next_best():
             )
         )
     assert [f["format_id"] for f in chosen["requested_formats"]] == ["400", "140"]
+
+
+# --- resolution check -------------------------------------------------------------------
+
+from vidgrab.core.formats import actual_height, requested_height, video_height  # noqa: E402
+
+
+def _v(height, fid="x", **kw):
+    return {"format_id": fid, "height": height, "vcodec": "vp9", "ext": "webm", **kw}
+
+
+AUDIO = {"format_id": "140", "vcodec": "none", "acodec": "mp4a", "ext": "m4a"}
+
+
+def test_video_height_ignores_non_video():
+    assert video_height(_v(1080)) == 1080
+    assert video_height(AUDIO) is None
+    assert video_height({"height": 90, "ext": "mhtml", "vcodec": "none"}) is None  # storyboard
+    assert video_height(_v(2160, has_drm=True)) is None
+    assert video_height(_v(None)) is None
+
+
+@pytest.mark.parametrize(
+    ("quality", "heights", "attempted", "expected"),
+    [
+        (Quality.BEST, [2160, 1440, 1080], [], 2160),
+        (Quality.P1080, [2160, 1440, 1080, 720], [], 1080),
+        (Quality.P1080, [720, 480], [], 720),  # no 1080p exists: 720p is what you can get
+        (Quality.P720, [2160, 1080], [], None),  # nothing at or below 720p
+        (Quality.BEST, [1440], [2160], 2160),  # 4K was tried before a 403, then gone
+        (Quality.P1080, [720], [2160], 720),  # attempted 4K is above the 1080p cap
+        (Quality.AUDIO, [2160], [], None),
+    ],
+)
+def test_requested_height(quality, heights, attempted, expected):
+    info = {"formats": [AUDIO, *(_v(h) for h in heights)]}
+    assert requested_height(quality, info, attempted) == expected
+
+
+def test_actual_height():
+    assert actual_height({"requested_formats": [_v(1440), AUDIO]}) == 1440
+    assert actual_height({"height": 720, "vcodec": "avc1"}) == 720  # single-file format
+    assert actual_height({"requested_formats": [AUDIO]}) is None
+    assert actual_height(None) is None

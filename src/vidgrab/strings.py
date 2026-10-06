@@ -75,6 +75,11 @@ TOOLTIP_BITRATE = (
     "δεν βελτιώνουν την ποιότητα· απλώς μεγαλώνουν το αρχείο."
 )
 JOB_FORMAT = "{quality} · {format}"
+CHIP_LOWER_RESOLUTION = "{actual}p αντί {requested}p"
+TOOLTIP_LOWER_RESOLUTION = "Το YouTube δεν έδωσε την υψηλότερη ποιότητα. Δοκίμασε ξανά αργότερα."
+TOOLTIP_LOWER_RESOLUTION_OTHER_SITE = (
+    "Ο ιστότοπος δεν έδωσε την υψηλότερη ποιότητα. Δοκίμασε ξανά αργότερα."
+)
 
 # --- Cookie sources ---------------------------------------------------------------------
 COOKIES_NONE = "Κανένα"

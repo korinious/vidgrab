@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from vidgrab.core.errors import ErrorKind, UserError
-from vidgrab.core.models import DownloadRequest, JobStatus, Phase, Progress
+from vidgrab.core.models import DownloadRequest, DownloadResult, JobStatus, Phase, Progress
 from vidgrab.core.settings import DEFAULT_CONCURRENT, MAX_CONCURRENT, MIN_CONCURRENT
 
 
@@ -23,6 +23,7 @@ class DownloadJob:
     progress: Progress | None = None
     error: UserError | None = None
     output_path: Path | None = None
+    result: DownloadResult | None = None  # set when completed (resolution check etc.)
     attempts: int = 0
     thumbnail_url: str | None = field(default=None, compare=False)
 
@@ -99,7 +100,9 @@ class DownloadQueue:
             else JobStatus.DOWNLOADING
         )
 
-    def mark_completed(self, job_id: int, output_path: Path | None) -> None:
+    def mark_completed(
+        self, job_id: int, output_path: Path | None, result: DownloadResult | None = None
+    ) -> None:
         job = self._jobs[job_id]
         if job.status is JobStatus.CANCELLING:
             # Finished before the cancel request reached yt-dlp: the file is complete.
@@ -108,6 +111,7 @@ class DownloadQueue:
             raise InvalidTransition(f"job {job_id} is {job.status}, cannot complete")
         job.status = JobStatus.COMPLETED
         job.output_path = output_path
+        job.result = result
         job.error = None
 
     def mark_failed(self, job_id: int, error: UserError) -> None:
@@ -140,6 +144,7 @@ class DownloadQueue:
         job.error = None
         job.progress = None
         job.output_path = None
+        job.result = None
 
     def remove(self, job_id: int) -> None:
         job = self._jobs[job_id]

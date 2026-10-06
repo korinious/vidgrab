@@ -101,3 +101,29 @@ def test_format_labels_cover_all_enums():
 def test_request_format_text(kwargs, expected):
     req = DownloadRequest("https://x", output_dir=Path("o"), **kwargs)
     assert request_format_text(req) == expected
+
+
+def _completed(url, requested, actual):
+    from vidgrab.core.models import DownloadResult
+
+    job = DownloadJob(1, DownloadRequest(url, Quality.BEST, Path("o")))
+    job.status = JobStatus.COMPLETED
+    job.result = DownloadResult(Path("o/v.mp4"), requested, actual)
+    return job
+
+
+def test_lower_resolution_chip():
+    from vidgrab.ui.labels import lower_resolution_chip
+
+    text, tooltip = lower_resolution_chip(
+        _completed("https://www.youtube.com/watch?v=x", 2160, 1080)
+    )
+    assert text == "1080p αντί 2160p"
+    assert tooltip == "Το YouTube δεν έδωσε την υψηλότερη ποιότητα. Δοκίμασε ξανά αργότερα."
+    _, other = lower_resolution_chip(_completed("https://x.com/a/status/1", 1080, 720))
+    assert "YouTube" not in other
+    assert lower_resolution_chip(_completed("https://youtu.be/x", 1080, 1080)) is None
+    assert lower_resolution_chip(_completed("https://youtu.be/x", None, 720)) is None
+    job = _completed("https://youtu.be/x", 2160, 1080)
+    job.status = JobStatus.FAILED
+    assert lower_resolution_chip(job) is None

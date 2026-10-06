@@ -63,6 +63,9 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
 - HTTP 403: `core/downloader.py` repeats the full `extract_info` up to 2 times; the last try
   switches YouTube `player_client` and excludes the refused format. `RetryPolicy` holds the
   delays; tests make them zero via the autouse `fast_retries` fixture.
+- `download()` returns a `DownloadResult` (path, requested and actual video height). If the
+  saved video is below the best height the site offered for the chosen quality (e.g. after
+  the 403 fallback), the queue card shows an amber "1080p αντί 2160p" chip.
 - No known error may reach the user as UNKNOWN. When a new failure shows up in a log, add
   its exact message to `tests/test_errors.py` (`test_reported_errors_are_never_unknown`).
 - External binaries (ffmpeg, ffprobe, deno) are found only via `core/binaries.py`.

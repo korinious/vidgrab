@@ -62,7 +62,7 @@ def test_progress_and_final_path(tmp_path, fake_ydl, binaries):
 
     path = download(
         make_request(tmp_path), binaries, updates.append, threading.Event(), ydl_factory=fake_ydl
-    )
+    ).path
 
     assert path == tmp_path / "out" / "v.mp4"
     downloading = [u for u in updates if u.phase is Phase.DOWNLOADING]
@@ -85,7 +85,7 @@ def test_postprocessor_filepath_wins(tmp_path, fake_ydl, binaries):
         lambda p: None,
         threading.Event(),
         ydl_factory=fake_ydl,
-    )
+    ).path
     assert path == Path(final)
 
 
@@ -297,7 +297,7 @@ def test_mp4_with_opus_audio_gets_aac(tmp_path, fake_ydl):
         threading.Event(),
         ydl_factory=fake_ydl,
         runner=runner,
-    )
+    ).path
     assert path.read_bytes() == b"aac"
     assert [Path(c[0]).name for c in runner.calls] == ["ffprobe", "ffmpeg"]
     assert updates[-1].phase is Phase.POSTPROCESSING
@@ -382,7 +382,7 @@ def test_403_passes_on_second_retry(tmp_path, fake_ydl, binaries, caplog):
         threading.Event(),
         ydl_factory=fake_ydl,
         policy=FAST,
-    )
+    ).path
 
     assert path == tmp_path / "out" / "v.mp4"
     # three separate YoutubeDL instances = three full, fresh extract_info calls
@@ -516,7 +516,7 @@ def test_winerror32_on_rename_passes_after_two_attempts(
         threading.Event(),
         ydl_factory=fake_ydl,
         policy=FAST,
-    )
+    ).path
     assert path == tmp_path / "out" / "v.mp4" and path.read_bytes() == b"done"
     assert len(calls) == 3
     assert list(staging_root.iterdir()) == []
@@ -603,7 +603,7 @@ def test_two_concurrent_jobs_same_video_id(tmp_path, fake_ydl, binaries, staging
                     threading.Event(),
                     ydl_factory=fake_ydl,
                     policy=FAST,
-                )
+                ).path
             )
         except Exception as exc:  # pragma: no cover - reported below
             errors.append(exc)
@@ -655,8 +655,8 @@ def test_real_ytdlp_end_to_end_mp4(tmp_path, staging_root):
     req = DownloadRequest(
         src.as_uri(), Quality.BEST, tmp_path / "out", container=VideoContainer.MP4
     )
-    first = download(req, bins, lambda p: None, threading.Event(), ydl_factory=factory)
-    second = download(req, bins, lambda p: None, threading.Event(), ydl_factory=factory)
+    first = download(req, bins, lambda p: None, threading.Event(), ydl_factory=factory).path
+    second = download(req, bins, lambda p: None, threading.Event(), ydl_factory=factory).path
 
     def codecs(path):
         return subprocess.run(
@@ -668,3 +668,100 @@ def test_real_ytdlp_end_to_end_mp4(tmp_path, staging_root):
     assert first.name == "clip [clip].mp4" and second.name == "clip [clip] (2).mp4"
     assert codecs(first) == ["vp9", "aac"]  # video copied, only audio converted
     assert list(staging_root.iterdir()) == []
+
+
+# --- lower resolution than requested -----------------------------------------------------
+
+
+def _vf(fid, height):
+    return {"format_id": fid, "height": height, "vcodec": "vp9", "ext": "webm"}
+
+
+AUDIO_140 = {"format_id": "140", "vcodec": "none", "acodec": "mp4a", "ext": "m4a"}
+
+
+def test_403_fallback_to_lower_resolution_is_reported(tmp_path, fake_ydl, binaries, caplog):
+    sc = fake_ydl.scenario
+    # attempts 1 and 2 start the 4K stream and get 403; the fallback excludes it
+    sc.attempt_errors = [http403(), http403(), None]
+    sc.progress_events = [{**stream_event("401"), "info_dict": _vf("401", 2160)}]
+    sc.info.update(
+        formats=[_vf("401", 2160), _vf("400", 1440), _vf("137", 1080), AUDIO_140],
+        requested_formats=[_vf("400", 1440), AUDIO_140],
+    )
+    sc.final_name = "v.mp4"
+    result = download(
+        make_request(tmp_path),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+    )
+    assert (result.requested_height, result.actual_height) == (2160, 1440)
+    assert result.downgraded
+    assert "Lower resolution than requested" in caplog.text
+
+
+def test_4k_dropped_from_formats_after_client_switch_is_still_reported(
+    tmp_path, fake_ydl, binaries
+):
+    # The fallback clients may not list the 4K format at all; the attempted height counts.
+    sc = fake_ydl.scenario
+    sc.attempt_errors = [http403(), http403(), None]
+    sc.progress_events = [{**stream_event("401"), "info_dict": _vf("401", 2160)}]
+    sc.info.update(
+        formats=[_vf("137", 1080), AUDIO_140], requested_formats=[_vf("137", 1080), AUDIO_140]
+    )
+    result = download(
+        make_request(tmp_path),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+    )
+    assert (result.requested_height, result.actual_height) == (2160, 1080)
+
+
+@pytest.mark.parametrize(
+    ("quality", "available", "got", "downgraded"),
+    [
+        (Quality.P1080, [2160, 1080, 720], 720, True),  # any reason, not only 403
+        (Quality.P1080, [2160, 1080, 720], 1080, False),
+        (Quality.P1080, [720, 480], 720, False),  # the video has no 1080p: not a downgrade
+        (Quality.BEST, [2160, 1440], 2160, False),
+        (Quality.BEST, [2160, 1440], 1440, True),
+    ],
+)
+def test_resolution_check_for_any_reason(
+    tmp_path, fake_ydl, binaries, quality, available, got, downgraded
+):
+    sc = fake_ydl.scenario
+    sc.info.update(
+        formats=[_vf(str(h), h) for h in available] + [AUDIO_140],
+        requested_formats=[_vf(str(got), got), AUDIO_140],
+    )
+    sc.final_name = "v.mp4"
+    req = DownloadRequest("https://youtu.be/abc123", quality, tmp_path / "out")
+    result = download(
+        req, binaries, lambda p: None, threading.Event(), ydl_factory=fake_ydl, policy=FAST
+    )
+    assert result.actual_height == got
+    assert result.downgraded is downgraded
+
+
+def test_audio_only_has_no_resolution_check(tmp_path, fake_ydl, binaries):
+    fake_ydl.scenario.info.update(
+        formats=[_vf("401", 2160), AUDIO_140], requested_formats=[AUDIO_140]
+    )
+    fake_ydl.scenario.final_name = "song.mp3"
+    result = download(
+        make_request(tmp_path, Quality.AUDIO),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+    )
+    assert result.requested_height is None and not result.downgraded

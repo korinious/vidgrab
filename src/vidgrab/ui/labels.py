@@ -119,3 +119,21 @@ def job_status_text(job: DownloadJob) -> str:
     if job.status is JobStatus.COMPLETED and job.output_path is not None:
         return strings.STATUS_WITH_MESSAGE.format(status=status, message=job.output_path.name)
     return status
+
+
+def lower_resolution_chip(job: DownloadJob) -> tuple[str, str] | None:
+    """(text, tooltip) when a completed job got a lower resolution than requested."""
+    from vidgrab.core.downloader import is_youtube_url
+
+    result = job.result
+    if job.status is not JobStatus.COMPLETED or result is None or not result.downgraded:
+        return None
+    text = strings.CHIP_LOWER_RESOLUTION.format(
+        actual=result.actual_height, requested=result.requested_height
+    )
+    tooltip = (
+        strings.TOOLTIP_LOWER_RESOLUTION
+        if is_youtube_url(job.request.url)
+        else strings.TOOLTIP_LOWER_RESOLUTION_OTHER_SITE
+    )
+    return text, tooltip

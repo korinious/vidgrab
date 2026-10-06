@@ -49,7 +49,7 @@ class MetadataWorker(QThread):
 
 class DownloadWorker(QThread):
     progressed = Signal(int, object)  # job id, Progress
-    completed = Signal(int, object)  # job id, Path | None
+    completed = Signal(int, object)  # job id, DownloadResult
     failed = Signal(int, object)  # job id, UserError
 
     def __init__(
@@ -82,7 +82,7 @@ class DownloadWorker(QThread):
 
     def run(self) -> None:
         try:
-            path = download(
+            result = download(
                 self._request,
                 self._binaries,
                 self._on_progress,
@@ -96,4 +96,4 @@ class DownloadWorker(QThread):
             log.exception("Unexpected error in download worker")
             self.failed.emit(self.job_id, classify(exc))
         else:
-            self.completed.emit(self.job_id, path)
+            self.completed.emit(self.job_id, result)

@@ -155,3 +155,17 @@ def test_remove_and_clear_finished():
     assert [j.id for j in q.jobs] == [failed.id, queued.id]
     q.remove(failed.id)
     assert [j.id for j in q.jobs] == [queued.id]
+
+
+def test_result_is_kept_on_completion_and_cleared_on_retry():
+    from vidgrab.core.models import DownloadResult
+
+    q = DownloadQueue()
+    job = q.add(req())
+    q.start_next()
+    result = DownloadResult(Path("out/v.mp4"), 2160, 1080)
+    q.mark_completed(job.id, result.path, result)
+    assert job.result is result
+    job.status = JobStatus.CANCELLED  # e.g. a later cancel; retry must clear old results
+    q.retry(job.id)
+    assert job.result is None

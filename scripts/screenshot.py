@@ -34,6 +34,7 @@ def main(out_png: Path) -> None:
     app = QApplication([])
     with tempfile.TemporaryDirectory(prefix="vidgrab-demo-") as tmp:
         tmp_dir = Path(tmp)
+        os.environ["VIDGRAB_TMP_DIR"] = str(tmp_dir / "staging")  # not the real app data
         fake = FakeYdlFactory()
         fake.scenario.info["title"] = "Πώς δουλεύει το FFmpeg — πλήρης οδηγός"
         win = MainWindow(
@@ -60,12 +61,18 @@ def main(out_png: Path) -> None:
         def choose(combo, value):
             combo.setCurrentIndex(combo.findData(value))
 
-        # Completed: 1080p MP4
-        choose(win.quality_combo, Quality.P1080)
+        # Completed: best quality as MP4, but the site only delivered 1440p of a 4K video,
+        # which shows the amber "lower resolution" chip.
+        choose(win.quality_combo, Quality.BEST)
         choose(win.format_combo, VideoContainer.MP4)
+        audio = {"format_id": "140", "vcodec": "none", "acodec": "mp4a", "ext": "m4a"}
+        uhd = {"format_id": "401", "height": 2160, "vcodec": "av01", "ext": "mp4"}
+        qhd = {"format_id": "400", "height": 1440, "vcodec": "av01", "ext": "mp4"}
+        fake.scenario.info.update(formats=[uhd, qhd, audio], requested_formats=[qhd, audio])
         fake.scenario.final_name = "done.mp4"
         done = win.enqueue_current()
         pump(lambda: done.status is JobStatus.COMPLETED)
+        fake.scenario.info.pop("requested_formats")
 
         fake.scenario.final_name = None
         fake.scenario.error = DownloadError(

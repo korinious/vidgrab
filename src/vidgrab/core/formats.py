@@ -91,3 +91,52 @@ def exclude_format_ids(format_spec: str, format_ids: Sequence[str]) -> str:
     filters = "".join(f"[format_id!='{fid}']" for fid in dict.fromkeys(format_ids))
     parts = re.split(r"([/+,()])", format_spec)
     return "".join(p if p in "/+,()" or not p.strip() else p + filters for p in parts)
+
+
+# --- resolution check: did we get the resolution that was asked for? --------------------
+
+HEIGHT_CAPS: dict[Quality, int | None] = {
+    Quality.BEST: None,
+    Quality.P1080: 1080,
+    Quality.P720: 720,
+}
+
+
+def video_height(fmt: Any) -> int | None:
+    """Height of a real video format; None for audio-only, storyboards or unknown."""
+    if not isinstance(fmt, dict):
+        return None
+    if fmt.get("vcodec") == "none" or fmt.get("ext") == "mhtml" or fmt.get("has_drm"):
+        return None
+    height = fmt.get("height")
+    return int(height) if isinstance(height, int | float) and height > 0 else None
+
+
+def requested_height(
+    quality: Quality, info: Any, attempted_heights: Sequence[int] = ()
+) -> int | None:
+    """The best height the user could have got for ``quality``.
+
+    That is the highest video format the site offered (capped at 1080/720), or one tried in
+    an earlier attempt that failed (e.g. a 4K stream refused with 403). A video that simply
+    has no 1080p version is not "downgraded" when 1080p was asked for.
+    """
+    quality = Quality(quality)
+    if quality.is_audio:
+        return None
+    cap = HEIGHT_CAPS[quality]
+    formats = info.get("formats") if isinstance(info, dict) else None
+    heights = [h for h in map(video_height, formats or []) if h]
+    heights += [h for h in attempted_heights if h]
+    if cap is not None:
+        heights = [h for h in heights if h <= cap]
+    return max(heights, default=None)
+
+
+def actual_height(info: Any) -> int | None:
+    """Height of the video that was actually downloaded."""
+    if not isinstance(info, dict):
+        return None
+    parts = info.get("requested_formats") or [info]
+    heights = [h for h in map(video_height, parts) if h]
+    return max(heights, default=None)

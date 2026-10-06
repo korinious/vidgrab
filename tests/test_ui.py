@@ -436,3 +436,40 @@ def test_forbidden_is_shown_and_ui_retry_extracts_again(qapp, window, fake_ydl):
     new = fake_ydl.instances[before:]
     assert len(new) == 1
     assert new[0].extract_calls == [(job.request.url, True)]  # fresh extract_info + download
+
+
+# --- lower resolution chip ---------------------------------------------------------------
+
+
+def _vfmt(fid, height):
+    return {"format_id": fid, "height": height, "vcodec": "vp9", "ext": "webm"}
+
+
+def test_lower_resolution_chip_on_card(qapp, window, fake_ydl):
+    fetch(qapp, window)
+    audio = {"format_id": "140", "vcodec": "none", "acodec": "mp4a", "ext": "m4a"}
+    fake_ydl.scenario.info.update(
+        formats=[_vfmt("401", 2160), _vfmt("137", 1080), audio],
+        requested_formats=[_vfmt("137", 1080), audio],
+    )
+    fake_ydl.scenario.final_name = "v.mp4"
+    select(window.quality_combo, Quality.BEST)
+    job = window.enqueue_current()
+    wait_until(qapp, lambda: job.status is JobStatus.COMPLETED)
+    chip = window._job_items[job.id][1].resolution_chip
+    assert not chip.isHidden()
+    assert chip.text() == "1080p αντί 2160p"
+    assert chip.toolTip() == strings.TOOLTIP_LOWER_RESOLUTION
+    assert "#ffe8b0" in chip.styleSheet()  # amber
+
+
+def test_no_chip_when_resolution_is_as_requested(qapp, window, fake_ydl):
+    fetch(qapp, window)
+    fake_ydl.scenario.info.update(
+        formats=[_vfmt("401", 2160), _vfmt("137", 1080)],
+        requested_formats=[_vfmt("401", 2160)],
+    )
+    fake_ydl.scenario.final_name = "v.mp4"
+    job = window.enqueue_current()
+    wait_until(qapp, lambda: job.status is JobStatus.COMPLETED)
+    assert window._job_items[job.id][1].resolution_chip.isHidden()

@@ -151,3 +151,21 @@ class DownloadRequest:
     container: VideoContainer = VideoContainer.MP4  # used when quality is a video quality
     audio_format: AudioFormat = AudioFormat.MP3  # used when quality is AUDIO
     mp3_bitrate: int = DEFAULT_MP3_BITRATE  # kbps, used for AudioFormat.MP3
+
+
+@dataclass(frozen=True)
+class DownloadResult:
+    """What a finished download produced."""
+
+    path: Path | None
+    requested_height: int | None = None  # best height that was asked for and available
+    actual_height: int | None = None  # height of the video that was actually saved
+
+    @property
+    def downgraded(self) -> bool:
+        """True if the saved video is smaller than what was requested (e.g. after a 403)."""
+        return bool(
+            self.requested_height
+            and self.actual_height
+            and self.actual_height < self.requested_height
+        )
