@@ -42,10 +42,17 @@ from vidgrab.core.models import (
     Phase,
     Progress,
     Quality,
+    UpgradeOutcome,
+    UpgradeTarget,
     VideoContainer,
 )
 from vidgrab.core.options import OUTPUT_TEMPLATE, YdlFactory, base_options, default_ydl_factory
-from vidgrab.core.staging import MOVE_BACKOFF_S, move_to_destination, staging_dir
+from vidgrab.core.staging import (
+    MOVE_BACKOFF_S,
+    move_to_destination,
+    replace_with_upgrade,
+    staging_dir,
+)
 
 log = logging.getLogger(__name__)
 
@@ -247,11 +254,16 @@ def download(
     job_id: int | None = None,
     staging_root: Path | None = None,
     policy: RetryPolicy | None = None,
+    upgrade: UpgradeTarget | None = None,
 ) -> DownloadResult:
     """Download one video into ``request.output_dir``.
 
     Returns the final path plus the requested and actual video height, so the UI can flag
     a lower resolution than asked for (e.g. after the 403 fallback).
+
+    With ``upgrade`` (the "Ξανά σε πλήρη ποιότητα" button) the new download only replaces
+    ``upgrade.path`` if its resolution is higher; the old file goes to the Recycle Bin.
+    Otherwise the old file is kept and the new one discarded (``UpgradeOutcome.NO_BETTER``).
 
     Raises UserError. Every call does a full, fresh ``extract_info``; nothing is cached,
     so a retry from the UI always gets new URLs.
@@ -287,9 +299,31 @@ def download(
                 on_progress(Progress(phase=Phase.POSTPROCESSING))
                 ensure_mp4_audio(staged, binaries, cancel_event, runner)
             tracker.check_cancel()
-            path = move_to_destination(
-                staged, request.output_dir, sleep=policy.sleep, backoff=policy.move_backoff
-            )
+            wanted = requested_height(request.quality, info, tracker.attempted_heights)
+            got = actual_height(info)
+            outcome: UpgradeOutcome | None = None
+            if upgrade is None:
+                path = move_to_destination(
+                    staged, request.output_dir, sleep=policy.sleep, backoff=policy.move_backoff
+                )
+            else:
+                wanted = max(filter(None, (wanted, upgrade.requested_height)), default=None)
+                if got and got > upgrade.height:
+                    path = replace_with_upgrade(
+                        staged, upgrade.path, sleep=policy.sleep, backoff=policy.move_backoff
+                    )
+                    outcome = UpgradeOutcome.UPGRADED
+                    log.info("Full-quality retry: %sp -> %sp for %s", upgrade.height, got, path)
+                else:
+                    # Same or lower: keep the existing file; staging (with the new one) is
+                    # removed when this block exits.
+                    log.info(
+                        "Full-quality retry found no better quality (%sp, have %sp); keeping %s",
+                        got,
+                        upgrade.height,
+                        upgrade.path,
+                    )
+                    path, got, outcome = upgrade.path, upgrade.height, UpgradeOutcome.NO_BETTER
     except Exception as exc:
         err = UserError(ErrorKind.CANCELLED) if cancel_event.is_set() else classify(exc)
         if err.kind is ErrorKind.FORBIDDEN and not is_youtube_url(request.url):
@@ -306,11 +340,7 @@ def download(
             )
         raise err from exc
 
-    result = DownloadResult(
-        path,
-        requested_height=requested_height(request.quality, info, tracker.attempted_heights),
-        actual_height=actual_height(info),
-    )
+    result = DownloadResult(path, requested_height=wanted, actual_height=got, upgrade=outcome)
     if result.downgraded:
         log.warning(
             "Lower resolution than requested for %s: got %sp, wanted %sp",

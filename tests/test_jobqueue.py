@@ -169,3 +169,34 @@ def test_result_is_kept_on_completion_and_cleared_on_retry():
     job.status = JobStatus.CANCELLED  # e.g. a later cancel; retry must clear old results
     q.retry(job.id)
     assert job.result is None
+
+
+def test_retry_full_quality():
+    from vidgrab.core.models import DownloadResult, UpgradeTarget
+
+    q = DownloadQueue()
+    job = q.add(req())
+    q.start_next()
+    with pytest.raises(InvalidTransition):
+        q.retry_full_quality(job.id)  # still downloading
+    q.mark_completed(job.id, Path("out/v.mp4"), DownloadResult(Path("out/v.mp4"), 2160, 1080))
+    assert job.can_upgrade
+    q.retry_full_quality(job.id)
+    assert job.status is JobStatus.QUEUED
+    assert job.upgrade_target == UpgradeTarget(Path("out/v.mp4"), 1080, 2160)
+    q.start_next()
+    q.mark_completed(job.id, Path("out/v.mp4"), DownloadResult(Path("out/v.mp4"), 2160, 2160))
+    assert job.upgrade_target is None
+    assert not job.can_upgrade  # full quality now: no button
+
+
+def test_no_full_quality_retry_without_downgrade():
+    from vidgrab.core.models import DownloadResult
+
+    q = DownloadQueue()
+    job = q.add(req())
+    q.start_next()
+    q.mark_completed(job.id, Path("out/v.mp4"), DownloadResult(Path("out/v.mp4"), 1080, 1080))
+    assert not job.can_upgrade
+    with pytest.raises(InvalidTransition):
+        q.retry_full_quality(job.id)

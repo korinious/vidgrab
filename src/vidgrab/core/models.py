@@ -153,6 +153,22 @@ class DownloadRequest:
     mp3_bitrate: int = DEFAULT_MP3_BITRATE  # kbps, used for AudioFormat.MP3
 
 
+class UpgradeOutcome(StrEnum):
+    """Result of "Ξανά σε πλήρη ποιότητα" on a card that got a lower resolution."""
+
+    UPGRADED = "upgraded"  # higher resolution: replaced the old file (old one to the bin)
+    NO_BETTER = "no_better"  # same or lower: kept the old file, discarded the new one
+
+
+@dataclass(frozen=True)
+class UpgradeTarget:
+    """An existing download that a full-quality retry may replace."""
+
+    path: Path
+    height: int  # resolution of the existing file; the retry must beat it
+    requested_height: int | None = None  # what was wanted originally (kept for the chip)
+
+
 @dataclass(frozen=True)
 class DownloadResult:
     """What a finished download produced."""
@@ -160,6 +176,7 @@ class DownloadResult:
     path: Path | None
     requested_height: int | None = None  # best height that was asked for and available
     actual_height: int | None = None  # height of the video that was actually saved
+    upgrade: UpgradeOutcome | None = None  # set only for a full-quality retry
 
     @property
     def downgraded(self) -> bool:

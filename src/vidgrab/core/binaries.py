@@ -140,6 +140,13 @@ def self_check(binaries: Binaries | None = None) -> tuple[bool, list[str]]:
         else:
             lines.append(strings.SELF_CHECK_FOUND.format(name=name, path=path))
     try:
+        import send2trash  # noqa: F401  (Recycle Bin for replaced downloads)
+    except ImportError as exc:
+        ok = False
+        lines.append(strings.SELF_CHECK_MISSING.format(name=f"send2trash ({exc})"))
+    else:
+        lines.append(strings.SELF_CHECK_FOUND.format(name="send2trash", path="import ok"))
+    try:
         # The YouTube challenge solver scripts must be bundled as data files.
         import yt_dlp_ejs.yt.solver as solver
 

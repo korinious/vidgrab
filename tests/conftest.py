@@ -150,6 +150,22 @@ def fast_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def recycle_bin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, bytes]]:
+    """Fake Recycle Bin: records (path, content) and removes the file. Never the real one."""
+    from vidgrab.core import trash
+
+    binned: list[tuple[Path, bytes]] = []
+
+    def fake_send2trash(path: str) -> None:
+        p = Path(path)
+        binned.append((p, p.read_bytes()))
+        p.unlink()
+
+    monkeypatch.setattr(trash, "_send2trash", fake_send2trash)
+    return binned
+
+
 @pytest.fixture
 def binaries(tmp_path: Path) -> Binaries:
     bin_dir = tmp_path / "bin"

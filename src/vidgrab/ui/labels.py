@@ -11,6 +11,7 @@ from vidgrab.core.models import (
     JobStatus,
     Progress,
     Quality,
+    UpgradeOutcome,
     VideoContainer,
 )
 
@@ -117,7 +118,14 @@ def job_status_text(job: DownloadJob) -> str:
     if job.status is JobStatus.FAILED and isinstance(job.error, UserError):
         return strings.STATUS_WITH_MESSAGE.format(status=status, message=job.error.message)
     if job.status is JobStatus.COMPLETED and job.output_path is not None:
-        return strings.STATUS_WITH_MESSAGE.format(status=status, message=job.output_path.name)
+        text = strings.STATUS_WITH_MESSAGE.format(status=status, message=job.output_path.name)
+        outcome = job.result.upgrade if job.result is not None else None
+        if outcome is UpgradeOutcome.NO_BETTER:
+            text = f"{text} · {strings.STATUS_NO_BETTER_QUALITY}"
+        elif outcome is UpgradeOutcome.UPGRADED:
+            height = job.result.actual_height if job.result is not None else None
+            text = f"{text} · {strings.STATUS_UPGRADED.format(height=height)}"
+        return text
     return status
 
 

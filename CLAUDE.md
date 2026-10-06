@@ -66,6 +66,11 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
 - `download()` returns a `DownloadResult` (path, requested and actual video height). If the
   saved video is below the best height the site offered for the chosen quality (e.g. after
   the 403 fallback), the queue card shows an amber "1080p αντί 2160p" chip.
+- Cards with that chip have a "Ξανά σε πλήρη ποιότητα" icon button: a fresh download with
+  the same choices (`DownloadQueue.retry_full_quality`, `download(upgrade=...)`). Only a
+  higher resolution replaces the file (same name; the old one goes to the Recycle Bin via
+  `core/trash.py`/send2trash, never a permanent delete); otherwise the new file is dropped.
+  Tests use the autouse `recycle_bin` fake and must never touch the real Recycle Bin.
 - No known error may reach the user as UNKNOWN. When a new failure shows up in a log, add
   its exact message to `tests/test_errors.py` (`test_reported_errors_are_never_unknown`).
 - External binaries (ffmpeg, ffprobe, deno) are found only via `core/binaries.py`.

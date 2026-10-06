@@ -54,6 +54,13 @@ class DownloadController(QObject):
         self.job_changed.emit(self.queue.get(job_id))
         self._pump()
 
+    def retry_full_quality(self, job_id: int) -> None:
+        """New download with the same choices; replaces the file only if it is better."""
+        self.queue.retry_full_quality(job_id)
+        log.info("Full-quality retry queued for job %d", job_id)
+        self.job_changed.emit(self.queue.get(job_id))
+        self._pump()
+
     def remove(self, job_id: int) -> None:
         self.queue.remove(job_id)
         self.job_removed.emit(job_id)
@@ -84,7 +91,14 @@ class DownloadController(QObject):
     # --- internals ---------------------------------------------------------------------
     def _pump(self) -> None:
         for job in self.queue.start_next():
-            worker = DownloadWorker(job.id, job.request, self._binaries, self._ydl_factory, self)
+            worker = DownloadWorker(
+                job.id,
+                job.request,
+                self._binaries,
+                self._ydl_factory,
+                self,
+                upgrade=job.upgrade_target,
+            )
             worker.progressed.connect(self._on_progress)
             worker.completed.connect(self._on_completed)
             worker.failed.connect(self._on_failed)

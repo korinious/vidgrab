@@ -212,3 +212,77 @@ def move_to_destination(
             )
             sleep(delay)
     raise AssertionError("unreachable")
+
+
+def _rename_with_retries(
+    src: Path,
+    dest: Path,
+    *,
+    replace: Callable[[Path, Path], None],
+    sleep: Callable[[float], None],
+    backoff: Sequence[float],
+) -> None:
+    """Rename within one folder, retrying while another process holds the file."""
+    attempts = len(backoff) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            replace(src, dest)
+            return
+        except OSError as exc:
+            if not is_lock_error(exc) or attempt == attempts:
+                raise
+            log.warning(
+                "File locked renaming %s (attempt %d/%d): %s", src.name, attempt, attempts, exc
+            )
+            sleep(backoff[attempt - 1])
+
+
+def replace_with_upgrade(
+    new: Path,
+    old: Path,
+    *,
+    replace: Callable[[Path, Path], None] | None = None,
+    trash: Callable[[Path], None] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    backoff: Sequence[float] = MOVE_BACKOFF_S,
+) -> Path:
+    """Put the better download ``new`` where ``old`` is; ``old`` goes to the Recycle Bin.
+
+    Safe order: (1) move ``new`` into the folder under a free name, so it can never be
+    lost; (2) send ``old`` to the Recycle Bin; (3) rename ``new`` to ``old``'s name.
+    If (2) or (3) fails, both files are kept and the new one keeps its " (2)" name.
+    Returns where the new file ended up.
+    """
+    from vidgrab.core.trash import move_to_trash
+
+    replace = replace or _default_replace
+    trash = trash or move_to_trash
+    # Same name as before; only the extension follows the new file if it ever differs.
+    target = old if old.suffix.lower() == new.suffix.lower() else old.with_suffix(new.suffix)
+
+    placed = move_to_destination(
+        new.rename(new.with_name(target.name)) if new.name != target.name else new,
+        old.parent,
+        replace=replace,
+        sleep=sleep,
+        backoff=backoff,
+    )
+    if old.exists() and old != placed:
+        try:
+            trash(old)
+        except OSError as exc:
+            log.warning("Could not move %s to the Recycle Bin (%s); keeping both", old, exc)
+            return placed
+    if placed == target:
+        # Either the old file was already gone, or only the extension changed.
+        return placed
+    if target.exists():
+        log.warning("%s still exists; keeping the new file as %s", target, placed.name)
+        return placed
+    try:
+        _rename_with_retries(placed, target, replace=replace, sleep=sleep, backoff=backoff)
+    except OSError as exc:
+        log.warning("Could not rename %s to %s (%s); keeping it as is", placed, target, exc)
+        return placed
+    log.info("Replaced %s with a higher-resolution download", target)
+    return target

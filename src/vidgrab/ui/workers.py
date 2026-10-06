@@ -12,7 +12,7 @@ from vidgrab.core.binaries import Binaries
 from vidgrab.core.downloader import download
 from vidgrab.core.errors import UserError, classify
 from vidgrab.core.extractor import fetch_info
-from vidgrab.core.models import CookieConfig, DownloadRequest, Progress
+from vidgrab.core.models import CookieConfig, DownloadRequest, Progress, UpgradeTarget
 from vidgrab.core.options import YdlFactory, default_ydl_factory
 
 log = logging.getLogger(__name__)
@@ -59,9 +59,11 @@ class DownloadWorker(QThread):
         binaries: Binaries,
         ydl_factory: YdlFactory = default_ydl_factory,
         parent: QObject | None = None,
+        upgrade: UpgradeTarget | None = None,
     ) -> None:
         super().__init__(parent)
         self.job_id = job_id
+        self._upgrade = upgrade
         self._request = request
         self._binaries = binaries
         self._ydl_factory = ydl_factory
@@ -89,6 +91,7 @@ class DownloadWorker(QThread):
                 self._cancel_event,
                 self._ydl_factory,
                 job_id=self.job_id,
+                upgrade=self._upgrade,
             )
         except UserError as err:
             self.failed.emit(self.job_id, err)

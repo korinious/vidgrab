@@ -341,6 +341,7 @@ class MainWindow(QMainWindow):
         widget.cancel_requested.connect(self.controller.cancel)
         widget.retry_requested.connect(self.controller.retry)
         widget.remove_requested.connect(self.controller.remove)
+        widget.upgrade_requested.connect(self.controller.retry_full_quality)
         widget.open_requested.connect(self._open_job)
         widget.details_requested.connect(self._show_job_details)
         item = QListWidgetItem()

@@ -473,3 +473,65 @@ def test_no_chip_when_resolution_is_as_requested(qapp, window, fake_ydl):
     job = window.enqueue_current()
     wait_until(qapp, lambda: job.status is JobStatus.COMPLETED)
     assert window._job_items[job.id][1].resolution_chip.isHidden()
+
+
+# --- "Ξανά σε πλήρη ποιότητα" button --------------------------------------------------
+
+
+def _downgraded_job(qapp, window, fake_ydl):
+    fetch(qapp, window)
+    audio = {"format_id": "140", "vcodec": "none", "acodec": "mp4a", "ext": "m4a"}
+    fake_ydl.scenario.info.update(
+        formats=[_vfmt("401", 2160), _vfmt("137", 1080), audio],
+        requested_formats=[_vfmt("137", 1080), audio],
+    )
+    fake_ydl.scenario.final_name = "v.mp4"
+    select(window.quality_combo, Quality.BEST)
+    job = window.enqueue_current()
+    wait_until(qapp, lambda: job.status is JobStatus.COMPLETED)
+    return job, window._job_items[job.id][1], audio
+
+
+def test_upgrade_button_replaces_with_higher_resolution(qapp, window, fake_ydl, recycle_bin):
+    job, widget, audio = _downgraded_job(qapp, window, fake_ydl)
+    assert not widget.btn_upgrade.isHidden()
+    assert widget.btn_upgrade.toolTip() == "Ξανά σε πλήρη ποιότητα"
+    old_path = job.output_path
+    old_bytes = old_path.read_bytes()
+    before = len(fake_ydl.instances)
+
+    fake_ydl.scenario.info["requested_formats"] = [_vfmt("401", 2160), audio]
+    widget.btn_upgrade.click()
+    wait_until(qapp, lambda: job.status is JobStatus.COMPLETED and job.result.upgrade)
+
+    assert len(fake_ydl.instances) == before + 1  # one full new extract_info + download
+    assert job.output_path == old_path  # same name
+    assert [p for p, _ in recycle_bin] == [old_path]
+    assert recycle_bin[0][1] == old_bytes
+    assert widget.resolution_chip.isHidden() and widget.btn_upgrade.isHidden()
+    assert strings.STATUS_UPGRADED.format(height=2160) in widget.status.text()
+    assert [p.name for p in old_path.parent.iterdir()] == [old_path.name]
+
+
+def test_upgrade_button_without_improvement_keeps_old(qapp, window, fake_ydl, recycle_bin):
+    job, widget, _ = _downgraded_job(qapp, window, fake_ydl)
+    old_bytes = job.output_path.read_bytes()
+
+    widget.btn_upgrade.click()  # the site still offers only 1080p
+    wait_until(qapp, lambda: job.status is JobStatus.COMPLETED and job.result.upgrade)
+
+    assert strings.STATUS_NO_BETTER_QUALITY in widget.status.text()
+    assert "Δεν βρέθηκε καλύτερη ποιότητα αυτή τη στιγμή" in widget.status.text()
+    assert job.output_path.read_bytes() == old_bytes
+    assert recycle_bin == []
+    assert not widget.resolution_chip.isHidden()  # still below what was wanted
+    assert not widget.btn_upgrade.isHidden()  # can try again later
+    assert [p.name for p in job.output_path.parent.iterdir()] == [job.output_path.name]
+
+
+def test_no_upgrade_button_at_full_quality(qapp, window, fake_ydl):
+    fetch(qapp, window)
+    fake_ydl.scenario.final_name = "v.mp4"
+    job = window.enqueue_current()
+    wait_until(qapp, lambda: job.status is JobStatus.COMPLETED)
+    assert window._job_items[job.id][1].btn_upgrade.isHidden()

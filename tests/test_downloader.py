@@ -765,3 +765,93 @@ def test_audio_only_has_no_resolution_check(tmp_path, fake_ydl, binaries):
         policy=FAST,
     )
     assert result.requested_height is None and not result.downgraded
+
+
+# --- "Ξανά σε πλήρη ποιότητα": replace only if the new download is better ----------------
+
+from vidgrab.core.models import UpgradeOutcome, UpgradeTarget  # noqa: E402
+
+
+@pytest.fixture
+def existing_1080(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    old = out / "v.mp4"
+    old.write_bytes(b"old 1080p")
+    return UpgradeTarget(old, height=1080, requested_height=2160)
+
+
+def _offer(fake_ydl, got):
+    fake_ydl.scenario.info.update(
+        formats=[_vf("401", 2160), _vf("137", 1080), _vf("136", 720), AUDIO_140],
+        requested_formats=[_vf(str(got), got), AUDIO_140],
+    )
+    fake_ydl.scenario.final_name = "v.mp4"  # yt-dlp writes "done" into it
+
+
+def test_full_quality_retry_with_higher_resolution_replaces(
+    tmp_path, fake_ydl, binaries, existing_1080, recycle_bin, staging_root
+):
+    _offer(fake_ydl, 2160)
+    result = download(
+        make_request(tmp_path),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+        upgrade=existing_1080,
+    )
+    assert result.upgrade is UpgradeOutcome.UPGRADED
+    assert result.path == existing_1080.path  # same name, not " (2)"
+    assert result.path.read_bytes() == b"done"
+    assert (result.actual_height, result.requested_height) == (2160, 2160)
+    assert not result.downgraded
+    assert recycle_bin == [(existing_1080.path, b"old 1080p")]  # to the Recycle Bin
+    assert [p.name for p in (tmp_path / "out").iterdir()] == ["v.mp4"]
+    assert list(staging_root.iterdir()) == []
+    # a full new extract_info + download was done
+    assert fake_ydl.instances[-1].extract_calls == [(make_request(tmp_path).url, True)]
+
+
+@pytest.mark.parametrize("got", [1080, 720])  # same or lower resolution
+def test_full_quality_retry_without_improvement_keeps_old(
+    tmp_path, fake_ydl, binaries, existing_1080, recycle_bin, staging_root, got
+):
+    _offer(fake_ydl, got)
+    result = download(
+        make_request(tmp_path),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+        upgrade=existing_1080,
+    )
+    assert result.upgrade is UpgradeOutcome.NO_BETTER
+    assert result.path == existing_1080.path
+    assert existing_1080.path.read_bytes() == b"old 1080p"  # untouched
+    assert (result.actual_height, result.requested_height) == (1080, 2160)  # chip stays
+    assert result.downgraded
+    assert recycle_bin == []
+    assert [p.name for p in (tmp_path / "out").iterdir()] == ["v.mp4"]  # new one discarded
+    assert list(staging_root.iterdir()) == []
+
+
+def test_full_quality_retry_failure_leaves_old_file(
+    tmp_path, fake_ydl, binaries, existing_1080, recycle_bin
+):
+    fake_ydl.scenario.attempt_errors = [http403(), http403(), http403()]
+    with pytest.raises(UserError) as ei:
+        download(
+            make_request(tmp_path),
+            binaries,
+            lambda p: None,
+            threading.Event(),
+            ydl_factory=fake_ydl,
+            policy=FAST,
+            upgrade=existing_1080,
+        )
+    assert ei.value.kind is ErrorKind.FORBIDDEN
+    assert existing_1080.path.read_bytes() == b"old 1080p"
+    assert recycle_bin == []

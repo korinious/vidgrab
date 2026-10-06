@@ -75,6 +75,9 @@ TOOLTIP_BITRATE = (
     "δεν βελτιώνουν την ποιότητα· απλώς μεγαλώνουν το αρχείο."
 )
 JOB_FORMAT = "{quality} · {format}"
+BTN_RETRY_FULL_QUALITY = "Ξανά σε πλήρη ποιότητα"
+STATUS_NO_BETTER_QUALITY = "Δεν βρέθηκε καλύτερη ποιότητα αυτή τη στιγμή"
+STATUS_UPGRADED = "Αναβαθμίστηκε σε {height}p"
 CHIP_LOWER_RESOLUTION = "{actual}p αντί {requested}p"
 TOOLTIP_LOWER_RESOLUTION = "Το YouTube δεν έδωσε την υψηλότερη ποιότητα. Δοκίμασε ξανά αργότερα."
 TOOLTIP_LOWER_RESOLUTION_OTHER_SITE = (

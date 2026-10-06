@@ -237,3 +237,88 @@ def test_real_windows_lock_is_reported_with_holder(tmp_path, src, caplog):
     assert ei.value.kind is ErrorKind.FILE_LOCKED
     assert f"pid {os.getpid()}" in ei.value.detail
     assert f"pid {os.getpid()}" in caplog.text
+
+
+# --- replacing a file with a better download ----------------------------------------------
+
+from vidgrab.core.staging import replace_with_upgrade  # noqa: E402
+
+
+@pytest.fixture
+def old_and_new(tmp_path):
+    out = tmp_path / "Downloads"
+    out.mkdir()
+    old = out / "Title [abc].mp4"
+    old.write_bytes(b"old 1080p")
+    stage = tmp_path / "stage2"
+    stage.mkdir()
+    new = stage / "Title [abc].mp4"
+    new.write_bytes(b"new 2160p")
+    return old, new
+
+
+def test_upgrade_replaces_same_name_and_bins_old(old_and_new, recycle_bin):
+    old, new = old_and_new
+    final = replace_with_upgrade(new, old)
+    assert final == old  # same name, no " (2)"
+    assert old.read_bytes() == b"new 2160p"
+    assert recycle_bin == [(old, b"old 1080p")]  # old one went to the bin, not deleted
+    assert sorted(p.name for p in old.parent.iterdir()) == ["Title [abc].mp4"]
+
+
+def test_upgrade_when_old_file_is_gone(old_and_new, recycle_bin):
+    old, new = old_and_new
+    old.unlink()
+    assert replace_with_upgrade(new, old) == old
+    assert old.read_bytes() == b"new 2160p"
+    assert recycle_bin == []
+
+
+def test_upgrade_keeps_both_if_recycle_bin_fails(old_and_new):
+    old, new = old_and_new
+
+    def broken_trash(path):
+        raise OSError("Recycle Bin not available on this drive")
+
+    final = replace_with_upgrade(new, old, trash=broken_trash)
+    assert final.name == "Title [abc] (2).mp4"
+    assert old.read_bytes() == b"old 1080p"  # nothing lost
+    assert final.read_bytes() == b"new 2160p"
+
+
+def test_upgrade_rename_retries_while_locked(old_and_new, recycle_bin):
+    old, new = old_and_new
+    calls = []
+
+    def replace(a, b):
+        calls.append((a.name, b.name))
+        if b == old and sum(1 for _, dst in calls if dst == old.name) <= 2:
+            raise winerror32()
+        os.replace(a, b)
+
+    final = replace_with_upgrade(new, old, replace=replace, sleep=lambda s: None)
+    assert final == old and old.read_bytes() == b"new 2160p"
+
+
+def test_upgrade_with_different_extension(tmp_path, recycle_bin):
+    out = tmp_path / "out"
+    out.mkdir()
+    old = out / "v.mkv"
+    old.write_bytes(b"old")
+    new = tmp_path / "v.mp4"
+    new.write_bytes(b"new")
+    final = replace_with_upgrade(new, old)
+    assert final == out / "v.mp4"
+    assert [p.name for p, _ in recycle_bin] == ["v.mkv"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="exercise the real Recycle Bin on Windows CI only")
+def test_real_send2trash_on_windows(tmp_path):
+    # The autouse fake is bypassed here on purpose: this checks the real backend (the
+    # ctypes SHFileOperation one, since pywin32 is not a dependency) actually works.
+    from send2trash import send2trash
+
+    f = tmp_path / "vidgrab-recycle-bin-test.txt"
+    f.write_text("delete me")
+    send2trash(str(f))
+    assert not f.exists()

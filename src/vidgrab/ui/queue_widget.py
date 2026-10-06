@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +28,7 @@ class JobWidget(QWidget):
     cancel_requested = Signal(int)
     retry_requested = Signal(int)
     remove_requested = Signal(int)
+    upgrade_requested = Signal(int)
     open_requested = Signal(int)
     details_requested = Signal(int)
 
@@ -67,6 +70,13 @@ class JobWidget(QWidget):
         self.btn_open = QPushButton(strings.BTN_OPEN_FOLDER)
         self.btn_details = QPushButton(strings.BTN_DETAILS)
         self.btn_remove = QPushButton(strings.BTN_REMOVE)
+        # Icon button next to the amber chip: download again, keep only if better.
+        self.btn_upgrade = QToolButton()
+        self.btn_upgrade.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.btn_upgrade.setToolTip(strings.BTN_RETRY_FULL_QUALITY)
+        self.btn_upgrade.setAccessibleName(strings.BTN_RETRY_FULL_QUALITY)
+        self.btn_upgrade.setAutoRaise(True)
+        self.btn_upgrade.clicked.connect(lambda: self.upgrade_requested.emit(self.job_id))
         self.btn_cancel.clicked.connect(lambda: self.cancel_requested.emit(self.job_id))
         self.btn_retry.clicked.connect(lambda: self.retry_requested.emit(self.job_id))
         self.btn_open.clicked.connect(lambda: self.open_requested.emit(self.job_id))
@@ -76,6 +86,7 @@ class JobWidget(QWidget):
         header = QHBoxLayout()
         header.addWidget(self.title, 1)
         header.addWidget(self.resolution_chip)
+        header.addWidget(self.btn_upgrade)
         header.addWidget(self.quality)
 
         text_col = QVBoxLayout()
@@ -139,6 +150,7 @@ class JobWidget(QWidget):
             self.resolution_chip.setText(chip[0])
             self.resolution_chip.setToolTip(chip[1])
 
+        self.btn_upgrade.setVisible(job.can_upgrade)
         self.btn_cancel.setVisible(job.can_cancel)
         self.btn_retry.setVisible(job.can_retry)
         self.btn_open.setVisible(status is JobStatus.COMPLETED)
