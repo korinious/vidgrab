@@ -23,6 +23,8 @@ uv run pytest              # tests
 uv run ruff check .        # lint
 uv run ruff format .       # format
 uv run python -m vidgrab --self-check   # check ffmpeg/ffprobe/deno are found (no GUI)
+python scripts/check_paths.py          # every tracked path is valid on Windows
+uv run python scripts/screenshot.py docs/screenshot.png   # headless UI screenshot
 ```
 
 Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit `uv.lock`.
@@ -37,6 +39,14 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
   (`Quality(...)`, `CookieSource(...)`) when reading from a widget.
 - Tests never touch the network and never download anything. Use the `FakeYoutubeDL`
   fixture from `tests/conftest.py`. The core takes a `ydl_factory` argument for this.
+- Tests, demos and scripts write **only** to `tmp_path` / a temp dir, never into the
+  checkout. `conftest.py` fails the pytest run if new untracked files appear in the repo.
+  Never use a hardcoded or Windows-style path such as `"C:/Users/..."` in code or tests: on
+  Linux it is a *relative* path and lands inside the repo. The default download folder comes
+  from `platformdirs.user_downloads_path()`, and the downloader rejects relative output dirs.
+- No tracked path may contain `< > : " | ? * \`, a reserved device name, or a trailing dot or
+  space. `scripts/check_paths.py` enforces this in CI (Linux job, before the Windows jobs).
+  Run it before committing, and never `git add -A` without looking at `git status`.
 - yt-dlp exceptions are mapped to `UserError` in `core/errors.py`. When you add a new
   case, add a test in `tests/test_errors.py` and the message in `strings.py`.
 - Cancellation is cooperative: a `threading.Event` checked in the yt-dlp progress hook,
@@ -56,7 +66,8 @@ them on `PATH`. The frozen app looks in `<app>/_internal/bin/`.
 
 ## CI / releases
 
-- `.github/workflows/build.yml` runs tests, then builds `VidGrab/` with PyInstaller
+- `.github/workflows/build.yml` (push to main, PRs to main, tags, manual) checks paths on
+  Linux, runs tests, then builds `VidGrab/` with PyInstaller
   (`--onedir --windowed`) on windows-latest, bundling pinned ffmpeg/ffprobe/deno
   (SHA256 verified), runs `VidGrab.exe --self-check`, and uploads `VidGrab-<ver>-win64.zip`.
 - Push a tag `vX.Y.Z` to publish that zip to GitHub Releases.

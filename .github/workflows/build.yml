@@ -4,24 +4,40 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Pinned external tools. To bump one, change the version/URL *and* the SHA256.
   # FFmpeg "essentials" build by gyan.dev (GPL), mirrored on GitHub.
   FFMPEG_VERSION: "8.0"
   FFMPEG_URL: https://github.com/GyanD/codexffmpeg/releases/download/8.0/ffmpeg-8.0-essentials_build.zip
-  FFMPEG_ZIP_SHA256: ""
+  FFMPEG_ZIP_SHA256: 647e467caf82b9fa200a562769b5ff4d736aaf725804ed2c64ea9752106fa569
   # Deno: SHA256 of deno.exe itself (identical to the binary in the @deno/win32-x64 npm package).
   DENO_VERSION: "2.9.6"
   DENO_URL: https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-pc-windows-msvc.zip
   DENO_EXE_SHA256: 2ff9493dfa356be2975f477025ea770088e9e9cb2c83d983236d13561b96b7a6
 
 jobs:
+  # Runs on Linux first: a path that is invalid on Windows makes the Windows checkout
+  # itself fail, before any step could explain why.
+  paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject paths that are invalid on Windows
+        run: python3 scripts/check_paths.py
+
   test:
+    needs: paths
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

@@ -214,3 +214,13 @@ def test_unwritable_output_dir(tmp_path, fake_ydl, binaries):
             ydl_factory=fake_ydl,
         )
     assert ei.value.kind is ErrorKind.DISK
+
+
+def test_relative_output_dir_is_rejected(tmp_path, fake_ydl, binaries, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    request = DownloadRequest("https://youtu.be/abc123", Quality.BEST, Path("rel/out"))
+    with pytest.raises(UserError) as ei:
+        download(request, binaries, lambda p: None, threading.Event(), ydl_factory=fake_ydl)
+    assert ei.value.kind is ErrorKind.DISK
+    assert fake_ydl.instances == []
+    assert list(tmp_path.iterdir()) == []  # nothing created relative to the CWD
