@@ -3,7 +3,13 @@ import json
 import platformdirs
 import pytest
 
-from vidgrab.core.models import CookieConfig, CookieSource, Quality
+from vidgrab.core.models import (
+    AudioFormat,
+    CookieConfig,
+    CookieSource,
+    Quality,
+    VideoContainer,
+)
 from vidgrab.core.settings import (
     DEFAULT_CONCURRENT,
     MAX_CONCURRENT,
@@ -32,7 +38,7 @@ def test_roundtrip(tmp_path):
     path = tmp_path / "sub" / "settings.json"
     s = Settings(
         output_dir=str(tmp_path / "Videos"),
-        quality=Quality.AUDIO_MP3,
+        quality=Quality.AUDIO,
         cookie_source=CookieSource.FILE,
         cookie_file="C:/c.txt",
         max_concurrent=3,
@@ -40,7 +46,7 @@ def test_roundtrip(tmp_path):
     save_settings(s, path)
     assert load_settings(path) == s
     data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["quality"] == "audio_mp3"
+    assert data["quality"] == "audio"
     assert data["cookie_source"] == "file"
     assert list(path.parent.iterdir()) == [path]  # no temp files left behind
 
@@ -80,3 +86,52 @@ def test_bad_fields_fall_back(tmp_path, data, check):
 def test_cookies_property():
     s = Settings(cookie_source=CookieSource.FIREFOX)
     assert s.cookies == CookieConfig(CookieSource.FIREFOX, None)
+
+
+def test_format_defaults():
+    s = Settings()
+    assert s.video_container is VideoContainer.MP4
+    assert s.audio_format is AudioFormat.MP3
+    assert s.mp3_bitrate == 192
+
+
+@pytest.mark.parametrize("container", list(VideoContainer))
+@pytest.mark.parametrize("audio", list(AudioFormat))
+@pytest.mark.parametrize("bitrate", [128, 192, 256, 320])
+def test_format_choices_roundtrip(tmp_path, container, audio, bitrate):
+    path = tmp_path / "settings.json"
+    s = Settings(video_container=container, audio_format=audio, mp3_bitrate=bitrate)
+    save_settings(s, path)
+    loaded = load_settings(path)
+    assert (loaded.video_container, loaded.audio_format, loaded.mp3_bitrate) == (
+        container,
+        audio,
+        bitrate,
+    )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["video_container"] == container.value
+    assert data["audio_format"] == audio.value
+
+
+def test_v010_audio_mp3_quality_is_migrated(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"quality": "audio_mp3"}), encoding="utf-8")
+    s = load_settings(path)
+    assert s.quality is Quality.AUDIO
+    assert s.audio_format is AudioFormat.MP3
+
+
+@pytest.mark.parametrize(
+    ("data", "check"),
+    [
+        ({"video_container": "avi"}, lambda s: s.video_container is VideoContainer.MP4),
+        ({"audio_format": "flac"}, lambda s: s.audio_format is AudioFormat.MP3),
+        ({"mp3_bitrate": 999}, lambda s: s.mp3_bitrate == 192),
+        ({"mp3_bitrate": "320"}, lambda s: s.mp3_bitrate == 192),
+        ({"mp3_bitrate": True}, lambda s: s.mp3_bitrate == 192),
+    ],
+)
+def test_bad_format_fields_fall_back(tmp_path, data, check):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert check(load_settings(path))

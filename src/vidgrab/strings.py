@@ -51,7 +51,38 @@ OPEN_FILE_FAILED = "Δεν ήταν δυνατό το άνοιγμα: {path}"
 QUALITY_BEST = "Καλύτερη διαθέσιμη"
 QUALITY_1080P = "1080p"
 QUALITY_720P = "720p"
-QUALITY_AUDIO_MP3 = "Μόνο ήχος (MP3)"
+QUALITY_AUDIO = "Μόνο ήχος"
+
+# --- Output format ----------------------------------------------------------------------
+LABEL_FORMAT = "Μορφή:"
+LABEL_BITRATE = "Bitrate:"
+FORMAT_MP4 = "MP4"
+FORMAT_MKV = "MKV"
+AUDIO_FORMAT_MP3 = "MP3"
+AUDIO_FORMAT_ORIGINAL = "Αρχικό (m4a/opus)"
+BITRATE_ITEM = "{kbps} kbps"
+TOOLTIP_FORMAT_VIDEO = (
+    "MP4: παίζει παντού. Αν ο ήχος δεν είναι συμβατός, μετατρέπεται μόνο ο ήχος σε AAC· "
+    "η εικόνα δεν επανακωδικοποιείται ποτέ.\n"
+    "MKV: οι αρχικές ροές εικόνας και ήχου, χωρίς καμία μετατροπή."
+)
+TOOLTIP_FORMAT_AUDIO = (
+    "MP3: μετατροπή σε MP3 στο bitrate που επιλέγεις.\n"
+    "Αρχικό: ο ήχος όπως τον δίνει ο ιστότοπος (συνήθως m4a ή opus), χωρίς μετατροπή."
+)
+TOOLTIP_BITRATE = (
+    "Η πηγή του YouTube είναι περίπου 128–160 kbps, οπότε τα 256 ή 320 kbps "
+    "δεν βελτιώνουν την ποιότητα· απλώς μεγαλώνουν το αρχείο."
+)
+JOB_FORMAT = "{quality} · {format}"
+BTN_RETRY_FULL_QUALITY = "Ξανά σε πλήρη ποιότητα"
+STATUS_NO_BETTER_QUALITY = "Δεν βρέθηκε καλύτερη ποιότητα αυτή τη στιγμή"
+STATUS_UPGRADED = "Αναβαθμίστηκε σε {height}p"
+CHIP_LOWER_RESOLUTION = "{actual}p αντί {requested}p"
+TOOLTIP_LOWER_RESOLUTION = "Το YouTube δεν έδωσε την υψηλότερη ποιότητα. Δοκίμασε ξανά αργότερα."
+TOOLTIP_LOWER_RESOLUTION_OTHER_SITE = (
+    "Ο ιστότοπος δεν έδωσε την υψηλότερη ποιότητα. Δοκίμασε ξανά αργότερα."
+)
 
 # --- Cookie sources ---------------------------------------------------------------------
 COOKIES_NONE = "Κανένα"
@@ -108,6 +139,24 @@ ERR_COOKIES_FAILED = (
     "ή χρησιμοποίησε αρχείο cookies.txt."
 )
 ERR_COOKIE_FILE_MISSING = "Το αρχείο cookies.txt δεν βρέθηκε: {path}"
+ERR_FILE_LOCKED = (
+    "Το αρχείο χρησιμοποιείται από άλλο πρόγραμμα, π.χ. antivirus ή OneDrive. "
+    "Δοκίμασε ξανά ή άλλαξε φάκελο λήψεων."
+)
+ERR_FORBIDDEN = (
+    "Το YouTube αρνήθηκε τη λήψη (403). Δοκίμασε χαμηλότερη ποιότητα, cookies από browser, "
+    "ή ξανά σε λίγα λεπτά."
+)
+ERR_FORBIDDEN_OTHER_SITE = (
+    "Ο ιστότοπος αρνήθηκε τη λήψη (403). Δοκίμασε cookies από browser ή ξανά σε λίγα λεπτά."
+)
+ERR_RATE_LIMITED = (
+    "Πάρα πολλά αιτήματα προς τον ιστότοπο (429). Περίμενε λίγα λεπτά και δοκίμασε ξανά."
+)
+ERR_POSTPROCESSING = (
+    "Η επεξεργασία του αρχείου με το FFmpeg απέτυχε. Δοκίμασε άλλη μορφή (π.χ. MKV) "
+    "ή δες το αρχείο καταγραφής."
+)
 ERR_DISK = "Σφάλμα εγγραφής αρχείου. Έλεγξε τον φάκελο προορισμού και τον ελεύθερο χώρο."
 ERR_CANCELLED = "Η λήψη ακυρώθηκε."
 ERR_UNKNOWN = "Κάτι πήγε στραβά. Δες το αρχείο καταγραφής για λεπτομέρειες."

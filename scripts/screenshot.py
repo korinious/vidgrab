@@ -25,7 +25,7 @@ from yt_dlp.utils import DownloadError  # noqa: E402
 
 from conftest import FakeYdlFactory  # noqa: E402
 from vidgrab.core.binaries import Binaries  # noqa: E402
-from vidgrab.core.models import JobStatus, Quality  # noqa: E402
+from vidgrab.core.models import AudioFormat, JobStatus, Quality, VideoContainer  # noqa: E402
 from vidgrab.core.settings import Settings  # noqa: E402
 from vidgrab.ui.main_window import MainWindow  # noqa: E402
 
@@ -34,6 +34,7 @@ def main(out_png: Path) -> None:
     app = QApplication([])
     with tempfile.TemporaryDirectory(prefix="vidgrab-demo-") as tmp:
         tmp_dir = Path(tmp)
+        os.environ["VIDGRAB_TMP_DIR"] = str(tmp_dir / "staging")  # not the real app data
         fake = FakeYdlFactory()
         fake.scenario.info["title"] = "Πώς δουλεύει το FFmpeg — πλήρης οδηγός"
         win = MainWindow(
@@ -57,9 +58,21 @@ def main(out_png: Path) -> None:
         win.fetch_metadata()
         pump(win.btn_fetch.isEnabled)
 
+        def choose(combo, value):
+            combo.setCurrentIndex(combo.findData(value))
+
+        # Completed: best quality as MP4, but the site only delivered 1440p of a 4K video,
+        # which shows the amber "lower resolution" chip.
+        choose(win.quality_combo, Quality.BEST)
+        choose(win.format_combo, VideoContainer.MP4)
+        audio = {"format_id": "140", "vcodec": "none", "acodec": "mp4a", "ext": "m4a"}
+        uhd = {"format_id": "401", "height": 2160, "vcodec": "av01", "ext": "mp4"}
+        qhd = {"format_id": "400", "height": 1440, "vcodec": "av01", "ext": "mp4"}
+        fake.scenario.info.update(formats=[uhd, qhd, audio], requested_formats=[qhd, audio])
         fake.scenario.final_name = "done.mp4"
         done = win.enqueue_current()
         pump(lambda: done.status is JobStatus.COMPLETED)
+        fake.scenario.info.pop("requested_formats")
 
         fake.scenario.final_name = None
         fake.scenario.error = DownloadError(
@@ -67,6 +80,9 @@ def main(out_png: Path) -> None:
             "rate-limit reached or login required"
         )
         fake.scenario.progress_events = [{"status": "downloading", "create": "a"}]
+        # Failed: best quality as MKV
+        choose(win.quality_combo, Quality.BEST)
+        choose(win.format_combo, VideoContainer.MKV)
         failed = win.enqueue_current()
         pump(lambda: failed.status is JobStatus.FAILED)
 
@@ -84,7 +100,11 @@ def main(out_png: Path) -> None:
         }
         fake.scenario.progress_events = [event, event]
         fake.scenario.between_events = lambda i: gate.wait(10) if i == 1 else None
-        win.quality_combo.setCurrentIndex(win.quality_combo.findData(Quality.P1080))
+        # Running: audio only, MP3 at 192 kbps. This also leaves the switch showing the
+        # format and bitrate dropdowns in the screenshot.
+        choose(win.quality_combo, Quality.AUDIO)
+        choose(win.format_combo, AudioFormat.MP3)
+        choose(win.bitrate_combo, 192)
         running = win.enqueue_current()
         pump(lambda: running.progress is not None)
         for _ in range(20):

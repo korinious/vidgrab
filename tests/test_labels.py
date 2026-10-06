@@ -5,8 +5,19 @@ import pytest
 from vidgrab import strings
 from vidgrab.core.errors import ErrorKind, UserError
 from vidgrab.core.jobqueue import DownloadJob
-from vidgrab.core.models import DownloadRequest, JobStatus, Progress, Quality
+from vidgrab.core.models import (
+    AudioFormat,
+    DownloadRequest,
+    JobStatus,
+    Progress,
+    Quality,
+    VideoContainer,
+)
 from vidgrab.ui.labels import (
+    AUDIO_FORMAT_LABELS,
+    AUDIO_FORMAT_ORDER,
+    CONTAINER_LABELS,
+    CONTAINER_ORDER,
     QUALITY_LABELS,
     QUALITY_ORDER,
     STATUS_LABELS,
@@ -15,6 +26,7 @@ from vidgrab.ui.labels import (
     format_speed,
     job_status_text,
     progress_text,
+    request_format_text,
 )
 
 
@@ -65,3 +77,53 @@ def test_job_status_text():
     job.error = None
     job.output_path = Path("o/video.mp4")
     assert "video.mp4" in job_status_text(job)
+
+
+def test_format_labels_cover_all_enums():
+    assert set(CONTAINER_LABELS) == set(VideoContainer) == set(CONTAINER_ORDER)
+    assert set(AUDIO_FORMAT_LABELS) == set(AudioFormat) == set(AUDIO_FORMAT_ORDER)
+    assert CONTAINER_ORDER[0] is VideoContainer.MP4  # MP4 is the default, listed first
+    assert AUDIO_FORMAT_ORDER[0] is AudioFormat.MP3
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"quality": Quality.P1080}, "1080p · MP4"),
+        ({"quality": Quality.BEST, "container": VideoContainer.MKV}, "Καλύτερη διαθέσιμη · MKV"),
+        ({"quality": Quality.AUDIO, "mp3_bitrate": 320}, "Μόνο ήχος · MP3 320 kbps"),
+        (
+            {"quality": Quality.AUDIO, "audio_format": AudioFormat.ORIGINAL, "mp3_bitrate": 320},
+            "Μόνο ήχος · Αρχικό (m4a/opus)",
+        ),
+    ],
+)
+def test_request_format_text(kwargs, expected):
+    req = DownloadRequest("https://x", output_dir=Path("o"), **kwargs)
+    assert request_format_text(req) == expected
+
+
+def _completed(url, requested, actual):
+    from vidgrab.core.models import DownloadResult
+
+    job = DownloadJob(1, DownloadRequest(url, Quality.BEST, Path("o")))
+    job.status = JobStatus.COMPLETED
+    job.result = DownloadResult(Path("o/v.mp4"), requested, actual)
+    return job
+
+
+def test_lower_resolution_chip():
+    from vidgrab.ui.labels import lower_resolution_chip
+
+    text, tooltip = lower_resolution_chip(
+        _completed("https://www.youtube.com/watch?v=x", 2160, 1080)
+    )
+    assert text == "1080p αντί 2160p"
+    assert tooltip == "Το YouTube δεν έδωσε την υψηλότερη ποιότητα. Δοκίμασε ξανά αργότερα."
+    _, other = lower_resolution_chip(_completed("https://x.com/a/status/1", 1080, 720))
+    assert "YouTube" not in other
+    assert lower_resolution_chip(_completed("https://youtu.be/x", 1080, 1080)) is None
+    assert lower_resolution_chip(_completed("https://youtu.be/x", None, 720)) is None
+    job = _completed("https://youtu.be/x", 2160, 1080)
+    job.status = JobStatus.FAILED
+    assert lower_resolution_chip(job) is None

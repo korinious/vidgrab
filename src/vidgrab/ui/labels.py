@@ -5,21 +5,59 @@ from __future__ import annotations
 from vidgrab import strings
 from vidgrab.core.errors import UserError
 from vidgrab.core.jobqueue import DownloadJob
-from vidgrab.core.models import JobStatus, Progress, Quality
+from vidgrab.core.models import (
+    AudioFormat,
+    DownloadRequest,
+    JobStatus,
+    Progress,
+    Quality,
+    UpgradeOutcome,
+    VideoContainer,
+)
 
 QUALITY_ORDER: tuple[Quality, ...] = (
     Quality.BEST,
     Quality.P1080,
     Quality.P720,
-    Quality.AUDIO_MP3,
+    Quality.AUDIO,
 )
 
 QUALITY_LABELS: dict[Quality, str] = {
     Quality.BEST: strings.QUALITY_BEST,
     Quality.P1080: strings.QUALITY_1080P,
     Quality.P720: strings.QUALITY_720P,
-    Quality.AUDIO_MP3: strings.QUALITY_AUDIO_MP3,
+    Quality.AUDIO: strings.QUALITY_AUDIO,
 }
+
+CONTAINER_ORDER: tuple[VideoContainer, ...] = (VideoContainer.MP4, VideoContainer.MKV)
+CONTAINER_LABELS: dict[VideoContainer, str] = {
+    VideoContainer.MP4: strings.FORMAT_MP4,
+    VideoContainer.MKV: strings.FORMAT_MKV,
+}
+
+AUDIO_FORMAT_ORDER: tuple[AudioFormat, ...] = (AudioFormat.MP3, AudioFormat.ORIGINAL)
+AUDIO_FORMAT_LABELS: dict[AudioFormat, str] = {
+    AudioFormat.MP3: strings.AUDIO_FORMAT_MP3,
+    AudioFormat.ORIGINAL: strings.AUDIO_FORMAT_ORIGINAL,
+}
+
+
+def bitrate_label(kbps: int) -> str:
+    return strings.BITRATE_ITEM.format(kbps=kbps)
+
+
+def request_format_text(request: DownloadRequest) -> str:
+    """Short description of a job's choices, e.g. "1080p · MP4" or "Μόνο ήχος · MP3 192 kbps"."""
+    quality = Quality(request.quality)
+    if quality.is_audio:
+        audio = AudioFormat(request.audio_format)
+        fmt = AUDIO_FORMAT_LABELS[audio]
+        if audio is AudioFormat.MP3:
+            fmt = f"{fmt} {bitrate_label(request.mp3_bitrate)}"
+    else:
+        fmt = CONTAINER_LABELS[VideoContainer(request.container)]
+    return strings.JOB_FORMAT.format(quality=QUALITY_LABELS[quality], format=fmt)
+
 
 STATUS_LABELS: dict[JobStatus, str] = {
     JobStatus.QUEUED: strings.STATUS_QUEUED,
@@ -80,5 +118,30 @@ def job_status_text(job: DownloadJob) -> str:
     if job.status is JobStatus.FAILED and isinstance(job.error, UserError):
         return strings.STATUS_WITH_MESSAGE.format(status=status, message=job.error.message)
     if job.status is JobStatus.COMPLETED and job.output_path is not None:
-        return strings.STATUS_WITH_MESSAGE.format(status=status, message=job.output_path.name)
+        text = strings.STATUS_WITH_MESSAGE.format(status=status, message=job.output_path.name)
+        outcome = job.result.upgrade if job.result is not None else None
+        if outcome is UpgradeOutcome.NO_BETTER:
+            text = f"{text} · {strings.STATUS_NO_BETTER_QUALITY}"
+        elif outcome is UpgradeOutcome.UPGRADED:
+            height = job.result.actual_height if job.result is not None else None
+            text = f"{text} · {strings.STATUS_UPGRADED.format(height=height)}"
+        return text
     return status
+
+
+def lower_resolution_chip(job: DownloadJob) -> tuple[str, str] | None:
+    """(text, tooltip) when a completed job got a lower resolution than requested."""
+    from vidgrab.core.downloader import is_youtube_url
+
+    result = job.result
+    if job.status is not JobStatus.COMPLETED or result is None or not result.downgraded:
+        return None
+    text = strings.CHIP_LOWER_RESOLUTION.format(
+        actual=result.actual_height, requested=result.requested_height
+    )
+    tooltip = (
+        strings.TOOLTIP_LOWER_RESOLUTION
+        if is_youtube_url(job.request.url)
+        else strings.TOOLTIP_LOWER_RESOLUTION_OTHER_SITE
+    )
+    return text, tooltip

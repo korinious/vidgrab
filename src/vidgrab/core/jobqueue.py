@@ -11,7 +11,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from vidgrab.core.errors import ErrorKind, UserError
-from vidgrab.core.models import DownloadRequest, JobStatus, Phase, Progress
+from vidgrab.core.models import (
+    DownloadRequest,
+    DownloadResult,
+    JobStatus,
+    Phase,
+    Progress,
+    UpgradeTarget,
+)
 from vidgrab.core.settings import DEFAULT_CONCURRENT, MAX_CONCURRENT, MIN_CONCURRENT
 
 
@@ -23,12 +30,27 @@ class DownloadJob:
     progress: Progress | None = None
     error: UserError | None = None
     output_path: Path | None = None
+    result: DownloadResult | None = None  # set when completed (resolution check etc.)
+    # Set by "Ξανά σε πλήρη ποιότητα": the existing file the next run may replace.
+    upgrade_target: UpgradeTarget | None = None
     attempts: int = 0
     thumbnail_url: str | None = field(default=None, compare=False)
 
     @property
     def can_cancel(self) -> bool:
         return self.status in (JobStatus.QUEUED, JobStatus.DOWNLOADING, JobStatus.POSTPROCESSING)
+
+    @property
+    def can_upgrade(self) -> bool:
+        """Completed below the requested resolution: offer "Ξανά σε πλήρη ποιότητα"."""
+        r = self.result
+        return (
+            self.status is JobStatus.COMPLETED
+            and r is not None
+            and r.downgraded
+            and r.actual_height is not None
+            and self.output_path is not None
+        )
 
     @property
     def can_retry(self) -> bool:
@@ -99,7 +121,9 @@ class DownloadQueue:
             else JobStatus.DOWNLOADING
         )
 
-    def mark_completed(self, job_id: int, output_path: Path | None) -> None:
+    def mark_completed(
+        self, job_id: int, output_path: Path | None, result: DownloadResult | None = None
+    ) -> None:
         job = self._jobs[job_id]
         if job.status is JobStatus.CANCELLING:
             # Finished before the cancel request reached yt-dlp: the file is complete.
@@ -108,6 +132,8 @@ class DownloadQueue:
             raise InvalidTransition(f"job {job_id} is {job.status}, cannot complete")
         job.status = JobStatus.COMPLETED
         job.output_path = output_path
+        job.result = result
+        job.upgrade_target = None
         job.error = None
 
     def mark_failed(self, job_id: int, error: UserError) -> None:
@@ -140,6 +166,21 @@ class DownloadQueue:
         job.error = None
         job.progress = None
         job.output_path = None
+        job.result = None
+
+    def retry_full_quality(self, job_id: int) -> None:
+        """Queue a new download that replaces the file only if its resolution is higher."""
+        job = self._jobs[job_id]
+        if not job.can_upgrade:
+            raise InvalidTransition(f"job {job_id} has nothing to upgrade")
+        assert job.result is not None and job.output_path is not None
+        assert job.result.actual_height is not None
+        job.upgrade_target = UpgradeTarget(
+            job.output_path, job.result.actual_height, job.result.requested_height
+        )
+        job.status = JobStatus.QUEUED
+        job.progress = None
+        job.error = None
 
     def remove(self, job_id: int) -> None:
         job = self._jobs[job_id]

@@ -138,3 +138,80 @@ def test_cookies_failed_message_recommends_firefox():
 )
 def test_clean_message(raw, clean):
     assert clean_message(raw) == clean
+
+
+# --- errors reported from Windows testing: none of these may end up as "unknown" -------
+
+import io  # noqa: E402
+
+from yt_dlp.networking import Response  # noqa: E402
+from yt_dlp.networking.exceptions import HTTPError  # noqa: E402
+from yt_dlp.utils import PostProcessingError  # noqa: E402
+
+
+def http_error(status):
+    return HTTPError(Response(io.BytesIO(b""), "https://x", {}, status=status))
+
+
+@pytest.mark.parametrize(
+    ("exc", "kind"),
+    [
+        # exact message from the WinError 32 report
+        (
+            DownloadError(
+                "ERROR: Unable to rename file: [WinError 32] The process cannot access the file "
+                "because it is being used by another process: "
+                "'C:\\\\Users\\\\u\\\\Downloads\\\\t [x5d2DKqraZk].f401.mp4.part' -> "
+                "'C:\\\\Users\\\\u\\\\Downloads\\\\t [x5d2DKqraZk].f401.mp4'. "
+                "Giving up after 3 retries"
+            ),
+            ErrorKind.FILE_LOCKED,
+        ),
+        # exact message from the 403 report
+        (
+            DownloadError("ERROR: unable to download video data: HTTP Error 403: Forbidden"),
+            ErrorKind.FORBIDDEN,
+        ),
+        (wrapped(http_error(403)), ErrorKind.FORBIDDEN),
+        (http_error(429), ErrorKind.RATE_LIMITED),
+        (
+            DownloadError(
+                "ERROR: unable to download video data: HTTP Error 429: Too Many Requests"
+            ),
+            ErrorKind.RATE_LIMITED,
+        ),
+        (PostProcessingError("Conversion failed!"), ErrorKind.POSTPROCESSING),
+        (wrapped(PostProcessingError("Conversion failed!")), ErrorKind.POSTPROCESSING),
+    ],
+)
+def test_reported_errors_are_never_unknown(exc, kind):
+    err = classify(exc)
+    assert err.kind is kind
+    assert err.kind is not ErrorKind.UNKNOWN
+    assert err.message == MESSAGES[kind]
+
+
+def test_forbidden_message_text():
+    assert MESSAGES[ErrorKind.FORBIDDEN] == (
+        "Το YouTube αρνήθηκε τη λήψη (403). Δοκίμασε χαμηλότερη ποιότητα, cookies από browser, "
+        "ή ξανά σε λίγα λεπτά."
+    )
+    assert MESSAGES[ErrorKind.FILE_LOCKED] == (
+        "Το αρχείο χρησιμοποιείται από άλλο πρόγραμμα, π.χ. antivirus ή OneDrive. "
+        "Δοκίμασε ξανά ή άλλαξε φάκελο λήψεων."
+    )
+
+
+def test_login_required_403_stays_login_required():
+    # Instagram/Facebook answer 403 when cookies are needed; the message must say so.
+    inner = ExtractorError(
+        "Requested content is not available, rate-limit reached or login required",
+        cause=http_error(403),
+        expected=True,
+    )
+    assert classify(wrapped(inner)).kind is ErrorKind.LOGIN_REQUIRED
+
+
+def test_ffmpeg_missing_beats_generic_postprocessing():
+    exc = PostProcessingError("ffprobe and ffmpeg not found. Please install or provide the path")
+    assert classify(exc).kind is ErrorKind.FFMPEG_MISSING

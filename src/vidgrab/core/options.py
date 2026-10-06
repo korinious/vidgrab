@@ -34,6 +34,8 @@ def base_options(binaries: Binaries, cookies: CookieConfig) -> dict[str, Any]:
         "socket_timeout": 30,
         "retries": 3,
         "fragment_retries": 3,
+        # Renames inside the staging folder can still hit a brief antivirus lock on Windows.
+        "file_access_retries": 10,
         **binaries.ytdlp_options(),
         **cookie_options(cookies),
     }

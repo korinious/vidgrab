@@ -10,7 +10,12 @@ _Rendered headless (offscreen Qt) with fake data; thumbnails are blank there._
 ## Features
 
 - Paste a URL to see title, thumbnail and duration
-- Quality: Best / 1080p / 720p / Audio only (MP3)
+- Quality: Best / 1080p / 720p / Audio only
+- Format, chosen next to the quality:
+  - video: **MP4** (default; resolution first, then mp4/m4a preferred; if the audio still isn't
+    MP4-friendly, only the audio is converted to AAC, never the video) or **MKV** (original streams)
+  - audio: **MP3** (128 / 192 / 256 / 320 kbps) or **Original** (m4a/opus, no conversion)
+  - the last choices are remembered; each queued download keeps its own
 - Download queue with per-item progress, cancel and retry (2 parallel downloads by default)
 - Remembered destination folder
 - Cookies from Firefox / Chrome / Edge or a `cookies.txt` file (for Instagram/Facebook)

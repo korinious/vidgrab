@@ -12,7 +12,7 @@ from vidgrab.core.binaries import Binaries
 from vidgrab.core.downloader import download
 from vidgrab.core.errors import UserError, classify
 from vidgrab.core.extractor import fetch_info
-from vidgrab.core.models import CookieConfig, DownloadRequest, Progress
+from vidgrab.core.models import CookieConfig, DownloadRequest, Progress, UpgradeTarget
 from vidgrab.core.options import YdlFactory, default_ydl_factory
 
 log = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class MetadataWorker(QThread):
 
 class DownloadWorker(QThread):
     progressed = Signal(int, object)  # job id, Progress
-    completed = Signal(int, object)  # job id, Path | None
+    completed = Signal(int, object)  # job id, DownloadResult
     failed = Signal(int, object)  # job id, UserError
 
     def __init__(
@@ -59,9 +59,11 @@ class DownloadWorker(QThread):
         binaries: Binaries,
         ydl_factory: YdlFactory = default_ydl_factory,
         parent: QObject | None = None,
+        upgrade: UpgradeTarget | None = None,
     ) -> None:
         super().__init__(parent)
         self.job_id = job_id
+        self._upgrade = upgrade
         self._request = request
         self._binaries = binaries
         self._ydl_factory = ydl_factory
@@ -82,12 +84,14 @@ class DownloadWorker(QThread):
 
     def run(self) -> None:
         try:
-            path = download(
+            result = download(
                 self._request,
                 self._binaries,
                 self._on_progress,
                 self._cancel_event,
                 self._ydl_factory,
+                job_id=self.job_id,
+                upgrade=self._upgrade,
             )
         except UserError as err:
             self.failed.emit(self.job_id, err)
@@ -95,4 +99,4 @@ class DownloadWorker(QThread):
             log.exception("Unexpected error in download worker")
             self.failed.emit(self.job_id, classify(exc))
         else:
-            self.completed.emit(self.job_id, path)
+            self.completed.emit(self.job_id, result)

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
 from vidgrab.core.binaries import Binaries
 from vidgrab.core.errors import UserError
 from vidgrab.core.jobqueue import DownloadJob, DownloadQueue
-from vidgrab.core.models import DownloadRequest, Progress
+from vidgrab.core.models import DownloadRequest, DownloadResult, Progress
 from vidgrab.core.options import YdlFactory, default_ydl_factory
 from vidgrab.ui.workers import DownloadWorker
 
@@ -55,6 +54,13 @@ class DownloadController(QObject):
         self.job_changed.emit(self.queue.get(job_id))
         self._pump()
 
+    def retry_full_quality(self, job_id: int) -> None:
+        """New download with the same choices; replaces the file only if it is better."""
+        self.queue.retry_full_quality(job_id)
+        log.info("Full-quality retry queued for job %d", job_id)
+        self.job_changed.emit(self.queue.get(job_id))
+        self._pump()
+
     def remove(self, job_id: int) -> None:
         self.queue.remove(job_id)
         self.job_removed.emit(job_id)
@@ -85,7 +91,14 @@ class DownloadController(QObject):
     # --- internals ---------------------------------------------------------------------
     def _pump(self) -> None:
         for job in self.queue.start_next():
-            worker = DownloadWorker(job.id, job.request, self._binaries, self._ydl_factory, self)
+            worker = DownloadWorker(
+                job.id,
+                job.request,
+                self._binaries,
+                self._ydl_factory,
+                self,
+                upgrade=job.upgrade_target,
+            )
             worker.progressed.connect(self._on_progress)
             worker.completed.connect(self._on_completed)
             worker.failed.connect(self._on_failed)
@@ -98,8 +111,8 @@ class DownloadController(QObject):
         self.queue.update_progress(job_id, progress)
         self.job_changed.emit(self.queue.get(job_id))
 
-    def _on_completed(self, job_id: int, path: Path | None) -> None:
-        self.queue.mark_completed(job_id, path)
+    def _on_completed(self, job_id: int, result: DownloadResult) -> None:
+        self.queue.mark_completed(job_id, result.path, result)
         self.job_changed.emit(self.queue.get(job_id))
 
     def _on_failed(self, job_id: int, error: UserError) -> None:
