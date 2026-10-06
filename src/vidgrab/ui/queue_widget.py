@@ -75,6 +75,7 @@ class JobWidget(QWidget):
         text_col.addWidget(self.status)
 
         buttons = QHBoxLayout()
+        buttons.addStretch(1)
         for btn in (
             self.btn_cancel,
             self.btn_retry,
@@ -107,7 +108,9 @@ class JobWidget(QWidget):
     def update_job(self, job: DownloadJob) -> None:
         status = job.status
         self.status.setText(job_status_text(job))
-        self.status.setToolTip(job.error.detail if job.error else "")
+        # The row may cut a long message short; the tooltip always has all of it.
+        tooltip = f"{job.error.message}\n\n{job.error.detail}".strip() if job.error else ""
+        self.status.setToolTip(tooltip)
         color = {JobStatus.FAILED: "#c62828", JobStatus.COMPLETED: "#2e7d32"}.get(status, "")
         self.status.setStyleSheet(f"color: {color};" if color else "")
 

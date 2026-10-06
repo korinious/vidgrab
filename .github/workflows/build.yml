@@ -78,6 +78,9 @@ jobs:
           Invoke-WebRequest -Uri $env:FFMPEG_URL -OutFile downloads/ffmpeg.zip
           $hash = (Get-FileHash downloads/ffmpeg.zip -Algorithm SHA256).Hash.ToLower()
           Write-Host "ffmpeg zip sha256: $hash"
+          if (-not $env:FFMPEG_ZIP_SHA256) {
+            throw "FFMPEG_ZIP_SHA256 is not pinned yet. Verify and set it in build.yml: $hash"
+          }
           if ($hash -ne $env:FFMPEG_ZIP_SHA256) {
             throw "FFmpeg SHA256 mismatch: expected '$env:FFMPEG_ZIP_SHA256', got '$hash'"
           }

@@ -3,6 +3,10 @@
 Windows desktop video downloader for YouTube, X, Facebook and Instagram, built on
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) and PySide6.
 
+![VidGrab main window](docs/screenshot.png)
+
+_Rendered headless (offscreen Qt) with fake data; thumbnails are blank there._
+
 ## Features
 
 - Paste a URL to see title, thumbnail and duration
