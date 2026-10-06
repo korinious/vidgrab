@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from typing import Any
 
 from vidgrab.core.models import (
@@ -77,3 +79,15 @@ def _audio_options(audio_format: AudioFormat, mp3_bitrate: int) -> dict[str, Any
         "format": "ba/b",
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "best"}],
     }
+
+
+def exclude_format_ids(format_spec: str, format_ids: Sequence[str]) -> str:
+    """Add ``[format_id!=X]`` filters to every selector in ``format_spec``.
+
+    Used after an HTTP 403 to avoid the format whose URL was refused.
+    """
+    if not format_ids:
+        return format_spec
+    filters = "".join(f"[format_id!='{fid}']" for fid in dict.fromkeys(format_ids))
+    parts = re.split(r"([/+,()])", format_spec)
+    return "".join(p if p in "/+,()" or not p.strip() else p + filters for p in parts)

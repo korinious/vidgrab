@@ -88,6 +88,7 @@ class DownloadWorker(QThread):
                 self._on_progress,
                 self._cancel_event,
                 self._ydl_factory,
+                job_id=self.job_id,
             )
         except UserError as err:
             self.failed.emit(self.job_id, err)

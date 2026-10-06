@@ -18,6 +18,7 @@ from pathlib import Path
 from yt_dlp.utils import DownloadCancelled
 
 from vidgrab.core.binaries import Binaries
+from vidgrab.core.errors import ErrorKind, UserError
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +79,10 @@ def probe_audio_codecs(
         cancel_event,
     )  # fmt: skip
     if result.returncode != 0:
-        raise RuntimeError(f"ffprobe failed ({result.returncode}): {result.stderr.strip()}")
+        raise UserError(
+            ErrorKind.POSTPROCESSING,
+            detail=f"ffprobe failed ({result.returncode}): {result.stderr.strip()}",
+        )
     return [line.strip().lower() for line in result.stdout.splitlines() if line.strip()]
 
 
@@ -123,7 +127,10 @@ def ensure_mp4_audio(
     try:
         result = runner(args, cancel_event)
         if result.returncode != 0:
-            raise RuntimeError(f"ffmpeg failed ({result.returncode}): {result.stderr.strip()}")
+            raise UserError(
+                ErrorKind.POSTPROCESSING,
+                detail=f"ffmpeg failed ({result.returncode}): {result.stderr.strip()}",
+            )
         os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)

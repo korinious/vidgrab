@@ -1,3 +1,7 @@
+import logging
+import os
+import shutil
+import subprocess
 import threading
 from pathlib import Path
 
@@ -73,7 +77,7 @@ def test_postprocessor_filepath_wins(tmp_path, fake_ydl, binaries):
     final = str(tmp_path / "out" / "song.mp3")
     fake_ydl.scenario.postprocessor_events = [
         {"status": "started"},
-        {"status": "finished", "info_dict": {"filepath": final}},
+        {"status": "finished", "create": "song.mp3"},
     ]
     path = download(
         make_request(tmp_path, Quality.AUDIO),
@@ -97,7 +101,8 @@ def test_options_passed_to_ytdlp(tmp_path, fake_ydl, binaries):
     )
     params = fake_ydl.last_params
     assert "[height<=720]" in params["format"]
-    assert params["outtmpl"]["default"].startswith(str(tmp_path / "out"))
+    # yt-dlp works inside the job's private staging folder, never in the destination
+    assert params["outtmpl"]["default"].startswith(str(tmp_path / "staging"))
     assert params["outtmpl"]["default"].endswith("[%(id)s].%(ext)s")
     assert params["cookiefile"] == str(cookie_file)
     assert params["noplaylist"] is True
@@ -117,17 +122,20 @@ def test_audio_options(tmp_path, fake_ydl, binaries):
     assert fake_ydl.last_params["postprocessors"][0]["preferredcodec"] == "mp3"
 
 
-def test_cancel_mid_download_cleans_partials(tmp_path, fake_ydl, binaries):
+def test_cancel_mid_download_removes_staging(tmp_path, fake_ydl, binaries, staging_root):
     cancel = threading.Event()
     out = tmp_path / "out"
     out.mkdir()
     existing = out / "other.mp4"
     existing.write_bytes(b"keep me")
+    seen_stage = []
 
     def between(index):
+        stage = Path(fake_ydl.last_params["outtmpl"]["default"]).parent
         if index == 1:
             # yt-dlp's .part file for the stream being written
-            (out / "v.f137.mp4.part").write_bytes(b"partial")
+            (stage / "v.f137.mp4.part").write_bytes(b"partial")
+            seen_stage.append(stage)
         if index == 2:
             cancel.set()
 
@@ -139,9 +147,9 @@ def test_cancel_mid_download_cleans_partials(tmp_path, fake_ydl, binaries):
         download(make_request(tmp_path), binaries, lambda p: None, cancel, ydl_factory=fake_ydl)
 
     assert ei.value.kind is ErrorKind.CANCELLED
-    assert not (out / "v.f137.mp4").exists()
-    assert not (out / "v.f137.mp4.part").exists()
-    assert existing.exists()
+    assert seen_stage and not seen_stage[0].exists()  # whole staging folder removed
+    assert list(staging_root.iterdir()) == []
+    assert sorted(p.name for p in out.iterdir()) == ["other.mp4"]  # destination untouched
 
 
 def test_cancel_before_start_never_calls_ytdlp(tmp_path, fake_ydl, binaries):
@@ -172,7 +180,7 @@ def test_cancel_during_postprocessing(tmp_path, fake_ydl, binaries):
     assert not (tmp_path / "out" / "v.f137.mp4").exists()
 
 
-def test_failure_is_classified_and_keeps_completed_files(tmp_path, fake_ydl, binaries):
+def test_failure_is_classified_and_cleans_staging(tmp_path, fake_ydl, binaries, staging_root):
     sc = fake_ydl.scenario
     sc.progress_events = two_stream_events()[:1]
     sc.error = DownloadError("ERROR: [youtube] abc123: Sign in to confirm you're not a bot")
@@ -185,8 +193,8 @@ def test_failure_is_classified_and_keeps_completed_files(tmp_path, fake_ydl, bin
             ydl_factory=fake_ydl,
         )
     assert ei.value.kind is ErrorKind.LOGIN_REQUIRED
-    # Non-cancel failures keep partial data so yt-dlp can resume on retry.
-    assert (tmp_path / "out" / "v.f137.mp4").exists()
+    assert list(staging_root.iterdir()) == []
+    assert list((tmp_path / "out").iterdir()) == []  # no partial data in the destination
 
 
 def test_cookie_load_error(tmp_path, fake_ydl, binaries):
@@ -335,3 +343,328 @@ def test_cancel_before_audio_check(tmp_path, fake_ydl):
         )
     assert ei.value.kind is ErrorKind.CANCELLED
     assert runner.calls == []
+
+
+# --- HTTP 403: fresh extract_info retries and fallback ---------------------------------
+
+from vidgrab import strings  # noqa: E402
+from vidgrab.core import staging as staging_mod  # noqa: E402
+from vidgrab.core.downloader import YOUTUBE_FALLBACK_CLIENTS, RetryPolicy  # noqa: E402
+
+FAST = RetryPolicy(forbidden_delays=(0, 0), move_backoff=(0, 0, 0), sleep=lambda s: None)
+
+
+def http403():
+    return DownloadError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+
+
+def stream_event(format_id="401"):
+    return {
+        "status": "downloading",
+        "create": f"v.f{format_id}.mp4",
+        "downloaded_bytes": 1,
+        "total_bytes": 10,
+        "info_dict": {"format_id": format_id},
+    }
+
+
+def test_403_passes_on_second_retry(tmp_path, fake_ydl, binaries, caplog):
+    caplog.set_level(logging.INFO, logger="vidgrab")
+    sc = fake_ydl.scenario
+    sc.attempt_errors = [http403(), http403(), None]
+    sc.progress_events = [stream_event("401")]
+    sc.final_name = "v.mp4"
+
+    path = download(
+        make_request(tmp_path),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+    )
+
+    assert path == tmp_path / "out" / "v.mp4"
+    # three separate YoutubeDL instances = three full, fresh extract_info calls
+    assert len(fake_ydl.instances) == 3
+    assert all(
+        i.extract_calls == [("https://www.youtube.com/watch?v=abc123", True)]
+        for i in fake_ydl.instances
+    )
+    first, second, last = (i.params for i in fake_ydl.instances)
+    assert "extractor_args" not in first and "extractor_args" not in second
+    assert first["format"] == second["format"]
+    # last retry: other YouTube clients, and the refused format is excluded
+    assert last["extractor_args"]["youtube"]["player_client"] == YOUTUBE_FALLBACK_CLIENTS
+    assert "[format_id!='401']" in last["format"]
+    assert caplog.text.count("HTTP 403 on attempt") == 2
+    assert "Download attempt 3/3" in caplog.text
+    assert "403 fallback" in caplog.text
+
+
+def test_403_once_then_ok_needs_no_fallback(tmp_path, fake_ydl, binaries):
+    fake_ydl.scenario.attempt_errors = [http403(), None]
+    download(
+        make_request(tmp_path),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+    )
+    assert len(fake_ydl.instances) == 2
+    assert "extractor_args" not in fake_ydl.last_params
+
+
+def test_403_that_never_passes_is_forbidden(tmp_path, fake_ydl, binaries, staging_root):
+    fake_ydl.scenario.attempt_errors = [http403(), http403(), http403(), None]
+    with pytest.raises(UserError) as ei:
+        download(
+            make_request(tmp_path),
+            binaries,
+            lambda p: None,
+            threading.Event(),
+            ydl_factory=fake_ydl,
+            policy=FAST,
+        )
+    assert ei.value.kind is ErrorKind.FORBIDDEN
+    assert ei.value.message == strings.ERR_FORBIDDEN
+    assert "403" in ei.value.message
+    assert len(fake_ydl.instances) == 3  # 1 try + 2 retries, then give up
+    assert list(staging_root.iterdir()) == []
+
+
+def test_403_on_other_site_uses_generic_message_and_no_youtube_args(tmp_path, fake_ydl, binaries):
+    fake_ydl.scenario.attempt_errors = [http403(), http403(), http403()]
+    fake_ydl.scenario.progress_events = [stream_event("hd-720")]
+    req = DownloadRequest("https://x.com/a/status/1", Quality.BEST, tmp_path / "out")
+    with pytest.raises(UserError) as ei:
+        download(
+            req, binaries, lambda p: None, threading.Event(), ydl_factory=fake_ydl, policy=FAST
+        )
+    assert ei.value.kind is ErrorKind.FORBIDDEN
+    assert ei.value.message == strings.ERR_FORBIDDEN_OTHER_SITE
+    last = fake_ydl.last_params
+    assert "extractor_args" not in last
+    assert "[format_id!='hd-720']" in last["format"]
+
+
+def test_other_errors_are_not_retried(tmp_path, fake_ydl, binaries):
+    fake_ydl.scenario.attempt_errors = [
+        DownloadError("ERROR: [youtube] abc123: Video unavailable"),
+        None,
+    ]
+    with pytest.raises(UserError) as ei:
+        download(
+            make_request(tmp_path),
+            binaries,
+            lambda p: None,
+            threading.Event(),
+            ydl_factory=fake_ydl,
+            policy=FAST,
+        )
+    assert ei.value.kind is ErrorKind.UNAVAILABLE
+    assert len(fake_ydl.instances) == 1
+
+
+def test_cancel_while_waiting_to_retry_403(tmp_path, fake_ydl, binaries):
+    cancel = threading.Event()
+    fake_ydl.scenario.attempt_errors = [http403(), None]
+    threading.Timer(0.2, cancel.set).start()
+    slow = RetryPolicy(forbidden_delays=(30, 30))
+    with pytest.raises(UserError) as ei:
+        download(
+            make_request(tmp_path),
+            binaries,
+            lambda p: None,
+            cancel,
+            ydl_factory=fake_ydl,
+            policy=slow,
+        )
+    assert ei.value.kind is ErrorKind.CANCELLED
+    assert len(fake_ydl.instances) == 1  # did not start another attempt
+
+
+# --- WinError 32 when moving the finished file ------------------------------------------
+
+
+def _winerror32():
+    exc = PermissionError(
+        13, "The process cannot access the file because it is being used by another process"
+    )
+    exc.winerror = 32
+    return exc
+
+
+def test_winerror32_on_rename_passes_after_two_attempts(
+    tmp_path, fake_ydl, binaries, monkeypatch, staging_root
+):
+    calls = []
+
+    def flaky(src, dst):
+        calls.append(src)
+        if len(calls) <= 2:
+            raise _winerror32()
+        os.replace(src, dst)
+
+    monkeypatch.setattr(staging_mod, "_default_replace", flaky)
+    fake_ydl.scenario.final_name = "v.mp4"
+    path = download(
+        make_request(tmp_path),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+    )
+    assert path == tmp_path / "out" / "v.mp4" and path.read_bytes() == b"done"
+    assert len(calls) == 3
+    assert list(staging_root.iterdir()) == []
+
+
+def test_winerror32_on_rename_that_never_clears_is_file_locked(
+    tmp_path, fake_ydl, binaries, monkeypatch, staging_root
+):
+    def locked(src, dst):
+        raise _winerror32()
+
+    monkeypatch.setattr(staging_mod, "_default_replace", locked)
+    fake_ydl.scenario.final_name = "v.mp4"
+    with pytest.raises(UserError) as ei:
+        download(
+            make_request(tmp_path),
+            binaries,
+            lambda p: None,
+            threading.Event(),
+            ydl_factory=fake_ydl,
+            policy=FAST,
+        )
+    assert ei.value.kind is ErrorKind.FILE_LOCKED
+    assert ei.value.message == strings.ERR_FILE_LOCKED
+    assert list((tmp_path / "out").iterdir()) == []
+    assert list(staging_root.iterdir()) == []
+
+
+def test_ytdlp_rename_failure_message_is_file_locked(tmp_path, fake_ydl, binaries):
+    # The exact error from the Windows report, raised inside yt-dlp itself.
+    fake_ydl.scenario.error = DownloadError(
+        "ERROR: Unable to rename file: [WinError 32] The process cannot access the file "
+        "because it is being used by another process: 'C:\\\\x\\\\v.f401.mp4.part' -> "
+        "'C:\\\\x\\\\v.f401.mp4'. Giving up after 3 retries"
+    )
+    with pytest.raises(UserError) as ei:
+        download(
+            make_request(tmp_path),
+            binaries,
+            lambda p: None,
+            threading.Event(),
+            ydl_factory=fake_ydl,
+            policy=FAST,
+        )
+    assert ei.value.kind is ErrorKind.FILE_LOCKED
+
+
+def test_ytdlp_gets_more_file_access_retries(tmp_path, fake_ydl, binaries):
+    download(
+        make_request(tmp_path),
+        binaries,
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        policy=FAST,
+    )
+    assert fake_ydl.last_params["file_access_retries"] == 10
+
+
+# --- two jobs with the same video id at the same time -----------------------------------
+
+
+def test_two_concurrent_jobs_same_video_id(tmp_path, fake_ydl, binaries, staging_root):
+    both_downloading = threading.Barrier(2, timeout=5)
+    stages = set()
+
+    def between(index):
+        stages.add(Path(fake_ydl.instances[-1].params["outtmpl"]["default"]).parent)
+        both_downloading.wait()  # make the two downloads overlap
+
+    sc = fake_ydl.scenario
+    sc.progress_events = [stream_event("137")]
+    sc.between_events = between
+    sc.final_name = "Test video [abc123].mp4"
+    results, errors = [], []
+
+    def run():
+        try:
+            results.append(
+                download(
+                    make_request(tmp_path),
+                    binaries,
+                    lambda p: None,
+                    threading.Event(),
+                    ydl_factory=fake_ydl,
+                    policy=FAST,
+                )
+            )
+        except Exception as exc:  # pragma: no cover - reported below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+
+    assert errors == []
+    assert len({p.parent for p in stages}) == 1 and len(stages) == 2  # separate folders
+    assert sorted(p.name for p in results) == [
+        "Test video [abc123] (2).mp4",
+        "Test video [abc123].mp4",
+    ]
+    assert sorted(p.name for p in (tmp_path / "out").iterdir()) == sorted(p.name for p in results)
+    assert list(staging_root.iterdir()) == []
+
+
+# --- end to end with the real yt-dlp and ffmpeg (local file:// source, no network) ------
+
+
+@pytest.mark.skipif(
+    not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg not on PATH"
+)
+def test_real_ytdlp_end_to_end_mp4(tmp_path, staging_root):
+    from yt_dlp import YoutubeDL
+
+    from vidgrab.core.binaries import Binaries
+
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    src = tmp_path / "src" / "clip.webm"
+    src.parent.mkdir()
+    subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=1",
+         "-f", "lavfi", "-i", "sine=duration=1",
+         "-c:v", "libvpx-vp9", "-c:a", "libopus", str(src)],
+        check=True,
+    )  # fmt: skip
+    bins = Binaries(ffmpeg=Path(ffmpeg), ffprobe=Path(ffprobe))
+
+    def factory(params):
+        return YoutubeDL({**params, "enable_file_urls": True})
+
+    from vidgrab.core.models import VideoContainer
+
+    req = DownloadRequest(
+        src.as_uri(), Quality.BEST, tmp_path / "out", container=VideoContainer.MP4
+    )
+    first = download(req, bins, lambda p: None, threading.Event(), ydl_factory=factory)
+    second = download(req, bins, lambda p: None, threading.Event(), ydl_factory=factory)
+
+    def codecs(path):
+        return subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0",
+             str(path)],
+            capture_output=True, text=True, check=True,
+        ).stdout.split()  # fmt: skip
+
+    assert first.name == "clip [clip].mp4" and second.name == "clip [clip] (2).mp4"
+    assert codecs(first) == ["vp9", "aac"]  # video copied, only audio converted
+    assert list(staging_root.iterdir()) == []

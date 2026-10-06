@@ -15,6 +15,7 @@ from vidgrab.core.audiofix import (
     run_command,
 )
 from vidgrab.core.binaries import Binaries
+from vidgrab.core.errors import ErrorKind, UserError
 
 
 class FakeRunner:
@@ -122,15 +123,19 @@ def test_missing_tools_skip_with_warning(mp4, caplog):
 
 def test_ffmpeg_failure_keeps_original_and_cleans_tmp(real_bins, mp4):
     runner = FakeRunner(codecs="opus\n", ffmpeg_rc=1)
-    with pytest.raises(RuntimeError, match="ffmpeg failed"):
+    with pytest.raises(UserError) as ei:
         ensure_mp4_audio(mp4, real_bins, threading.Event(), runner)
+    assert ei.value.kind is ErrorKind.POSTPROCESSING
+    assert "ffmpeg failed" in ei.value.detail
     assert mp4.read_bytes() == b"original"
     assert not list(mp4.parent.glob("*.tmp.mp4"))
 
 
 def test_ffprobe_failure_raises(real_bins, mp4):
-    with pytest.raises(RuntimeError, match="ffprobe failed"):
+    with pytest.raises(UserError) as ei:
         ensure_mp4_audio(mp4, real_bins, threading.Event(), FakeRunner(probe_rc=1))
+    assert ei.value.kind is ErrorKind.POSTPROCESSING
+    assert "ffprobe failed" in ei.value.detail
 
 
 def test_run_command_returns_output():

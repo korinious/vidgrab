@@ -55,10 +55,21 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
   format). Video is **never** re-encoded. MP4 downloads go through `core/audiofix.py`, which
   converts only non-MP4-friendly audio (opus/vorbis/...) to AAC. Format choices are fields
   of the frozen `DownloadRequest`, so UI changes never affect queued or running jobs.
+- Downloads never write into the destination folder directly. `core/staging.py` gives each
+  job a private folder under `%LOCALAPPDATA%\VidGrab\tmp\` (outside OneDrive); only the
+  finished file is moved, with WinError 32 retries (~10 s) and a " (2)" suffix instead of
+  overwriting. Staging is removed on success, failure and cancel; orphans (dead owner PID)
+  are removed at startup. Tests set `VIDGRAB_TMP_DIR` to `tmp_path` (autouse fixture).
+- HTTP 403: `core/downloader.py` repeats the full `extract_info` up to 2 times; the last try
+  switches YouTube `player_client` and excludes the refused format. `RetryPolicy` holds the
+  delays; tests make them zero via the autouse `fast_retries` fixture.
+- No known error may reach the user as UNKNOWN. When a new failure shows up in a log, add
+  its exact message to `tests/test_errors.py` (`test_reported_errors_are_never_unknown`).
 - External binaries (ffmpeg, ffprobe, deno) are found only via `core/binaries.py`.
   Deno is passed to yt-dlp via `js_runtimes`. YouTube needs it for full format access.
 - Settings: JSON at `%APPDATA%\VidGrab\settings.json` (`core/settings.py`).
-  Logs: `%LOCALAPPDATA%\VidGrab\logs\vidgrab.log`.
+  Logs: `%LOCALAPPDATA%\VidGrab\logs\vidgrab.log` (starts with the yt-dlp and
+  yt-dlp-ejs versions).
 - Code, identifiers, comments and log messages are in English. Only UI strings are Greek.
 - The version lives in `src/vidgrab/__init__.py` (`__version__`) and in `pyproject.toml`.
   A test checks they match.

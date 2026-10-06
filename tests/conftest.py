@@ -34,6 +34,9 @@ class FakeScenario:
         }
     )
     error: BaseException | None = None
+    # Per download call: the n-th extract_info(download=True) uses attempt_errors[n]
+    # (None = succeeds) instead of `error`. Models "403, then 403, then OK".
+    attempt_errors: list[BaseException | None] = field(default_factory=list)
     # Each event is passed to the progress hooks. A "create" key (relative file name) makes
     # the fake write that file into the output dir first, like yt-dlp would.
     progress_events: list[HookEvent] = field(default_factory=list)
@@ -61,8 +64,11 @@ class FakeYoutubeDL:
     def extract_info(self, url: str, download: bool = True, **_: Any) -> dict[str, Any]:
         self.extract_calls.append((url, download))
         sc = self.scenario
-        if sc.error is not None and not sc.progress_events:
-            raise sc.error
+        error = sc.error
+        if download and sc.attempt_errors:
+            error = sc.attempt_errors.pop(0)
+        if error is not None and not sc.progress_events:
+            raise error
         info = dict(sc.info)
         if not download:
             return info
@@ -80,11 +86,15 @@ class FakeYoutubeDL:
             event.setdefault("info_dict", info)
             for hook in self.params.get("progress_hooks", []):
                 hook(event)
-        if sc.error is not None:
-            raise sc.error
+        if error is not None:
+            raise error
 
         for event in sc.postprocessor_events:
             event = dict(event)
+            if "create" in event:  # the postprocessor writes this file (e.g. the .mp3)
+                created = out / event.pop("create")
+                created.write_bytes(b"pp")
+                event["info_dict"] = {**info, "filepath": str(created)}
             event.setdefault("info_dict", info)
             for hook in self.params.get("postprocessor_hooks", []):
                 hook(event)
@@ -116,6 +126,28 @@ class FakeYdlFactory:
 @pytest.fixture
 def fake_ydl() -> FakeYdlFactory:
     return FakeYdlFactory()
+
+
+@pytest.fixture(autouse=True)
+def staging_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Every test stages downloads under its own tmp_path, never in the real app data."""
+    root = tmp_path / "staging"
+    monkeypatch.setenv("VIDGRAB_TMP_DIR", str(root))
+    return root
+
+
+@pytest.fixture(autouse=True)
+def fast_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No real waiting between 403 retries or lock retries (also for UI-driven downloads)."""
+    from vidgrab.core import downloader
+
+    monkeypatch.setattr(
+        downloader,
+        "DEFAULT_POLICY",
+        downloader.RetryPolicy(
+            forbidden_delays=(0, 0), move_backoff=(0, 0, 0), sleep=lambda s: None
+        ),
+    )
 
 
 @pytest.fixture

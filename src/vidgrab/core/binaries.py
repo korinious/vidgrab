@@ -101,13 +101,36 @@ def find_binaries(search_dirs: Sequence[Path] | None = None, use_path: bool = Tr
     return found
 
 
+def component_versions() -> dict[str, str]:
+    """Versions of the download stack, for the log and the self-check."""
+    versions: dict[str, str] = {}
+    try:
+        from yt_dlp.version import __version__ as ytdlp_version
+
+        versions["yt-dlp"] = ytdlp_version
+    except ImportError:
+        versions["yt-dlp"] = "missing"
+    try:
+        import yt_dlp_ejs
+
+        versions["yt-dlp-ejs"] = str(getattr(yt_dlp_ejs, "version", "unknown"))
+    except ImportError:
+        versions["yt-dlp-ejs"] = "missing"
+    return versions
+
+
+def log_component_versions() -> None:
+    for name, version in component_versions().items():
+        log.info("%s %s", name, version)
+
+
 def self_check(binaries: Binaries | None = None) -> tuple[bool, list[str]]:
     """Check that all tools and the yt-dlp JS components are available.
 
     Returns (ok, report lines). Used by ``VidGrab.exe --self-check`` in CI.
     """
     binaries = binaries or find_binaries()
-    lines: list[str] = []
+    lines: list[str] = [f"{name} {version}" for name, version in component_versions().items()]
     ok = True
     for name in TOOLS:
         path = getattr(binaries, name)

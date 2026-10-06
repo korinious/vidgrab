@@ -181,3 +181,42 @@ def test_mp4_sort_puts_resolution_first_then_mp4_and_m4a():
     # yt-dlp's default would pick opus for audio, which an MP4 would then have to convert
     default = _ranked([])
     assert default.index("opus") < default.index("m4a")
+
+
+@pytest.mark.parametrize(("quality", "container", "audio", "bitrate"), ALL_COMBOS)
+def test_403_fallback_options_are_valid_for_yt_dlp(quality, container, audio, bitrate):
+    from yt_dlp import YoutubeDL
+
+    from vidgrab.core.downloader import _apply_forbidden_fallback
+
+    opts = format_options(quality, container, audio, bitrate)
+    changes = _apply_forbidden_fallback(
+        opts, "https://www.youtube.com/watch?v=x", ["401", "140-16"]
+    )
+    assert len(changes) == 2
+    logger = _Collect()
+    with YoutubeDL({"quiet": True, "logger": logger, **opts}) as ydl:
+        ydl.build_format_selector(opts["format"])
+        assert ydl.params["extractor_args"]["youtube"]["player_client"][0] == "default"
+    assert logger.warnings == []
+
+
+def test_exclude_format_ids_selects_next_best():
+    from yt_dlp import YoutubeDL
+
+    from vidgrab.core.formats import exclude_format_ids
+
+    spec = exclude_format_ids(format_options(Quality.BEST)["format"], ["401", "140-16"])
+    formats = [
+        _fmt("401", "mp4", 2160, vcodec="av01"),
+        _fmt("400", "mp4", 1440, vcodec="av01"),
+        _fmt("140-16", "m4a", acodec="mp4a.40.2", abr=129),
+        _fmt("140", "m4a", acodec="mp4a.40.2", abr=128),
+    ]
+    with YoutubeDL({"quiet": True}) as ydl:
+        chosen = next(
+            ydl.build_format_selector(spec)(
+                {"formats": formats, "has_merged_format": False, "incomplete_formats": False}
+            )
+        )
+    assert [f["format_id"] for f in chosen["requested_formats"]] == ["400", "140"]

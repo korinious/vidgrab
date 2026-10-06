@@ -6,12 +6,13 @@ import re
 from enum import StrEnum
 
 from yt_dlp.cookies import CookieLoadError
-from yt_dlp.networking.exceptions import TransportError
+from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import (
     DownloadCancelled,
     DownloadError,
     ExtractorError,
     GeoRestrictedError,
+    PostProcessingError,
     UnsupportedError,
 )
 
@@ -31,6 +32,10 @@ class ErrorKind(StrEnum):
     NETWORK = "network"
     FFMPEG_MISSING = "ffmpeg_missing"
     COOKIES_FAILED = "cookies_failed"
+    FILE_LOCKED = "file_locked"
+    FORBIDDEN = "forbidden"
+    RATE_LIMITED = "rate_limited"
+    POSTPROCESSING = "postprocessing"
     DISK = "disk"
     CANCELLED = "cancelled"
     UNKNOWN = "unknown"
@@ -49,6 +54,10 @@ MESSAGES: dict[ErrorKind, str] = {
     ErrorKind.NETWORK: strings.ERR_NETWORK,
     ErrorKind.FFMPEG_MISSING: strings.ERR_FFMPEG_MISSING,
     ErrorKind.COOKIES_FAILED: strings.ERR_COOKIES_FAILED,
+    ErrorKind.FILE_LOCKED: strings.ERR_FILE_LOCKED,
+    ErrorKind.FORBIDDEN: strings.ERR_FORBIDDEN,
+    ErrorKind.RATE_LIMITED: strings.ERR_RATE_LIMITED,
+    ErrorKind.POSTPROCESSING: strings.ERR_POSTPROCESSING,
     ErrorKind.DISK: strings.ERR_DISK,
     ErrorKind.CANCELLED: strings.ERR_CANCELLED,
     ErrorKind.UNKNOWN: strings.ERR_UNKNOWN,
@@ -130,6 +139,17 @@ _PATTERNS: list[tuple[ErrorKind, re.Pattern[str]]] = [
             re.I,
         ),
     ),
+    (
+        # Windows sharing violation (antivirus, OneDrive sync, indexer holding the file).
+        ErrorKind.FILE_LOCKED,
+        re.compile(
+            r"winerror 3[23]\b|being used by another process|sharing violation"
+            r"|another process has locked a portion of the file",
+            re.I,
+        ),
+    ),
+    (ErrorKind.FORBIDDEN, re.compile(r"http error 403|\b403:? forbidden", re.I)),
+    (ErrorKind.RATE_LIMITED, re.compile(r"http error 429|too many requests", re.I)),
     (ErrorKind.UNSUPPORTED_URL, re.compile(r"unsupported url", re.I)),
     (ErrorKind.FORMAT_UNAVAILABLE, re.compile(r"requested format is not available", re.I)),
     (
@@ -160,6 +180,15 @@ _PATTERNS: list[tuple[ErrorKind, re.Pattern[str]]] = [
 ]
 
 _PREFIX = re.compile(r"^(?:ERROR:\s*)?(?:\[[^\]]+\]\s*(?:[\w-]+:\s+)?)?", re.I)
+
+
+# Windows error codes: ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+LOCK_WINERRORS = frozenset({32, 33})
+
+
+def is_lock_error(exc: BaseException) -> bool:
+    """True for "file is being used by another process" errors (Windows sharing violation)."""
+    return isinstance(exc, OSError) and getattr(exc, "winerror", None) in LOCK_WINERRORS
 
 
 def clean_message(text: str) -> str:
@@ -211,10 +240,21 @@ def classify(exc: BaseException) -> UserError:
         if pattern.search(text):
             return UserError(kind, detail=detail)
 
+    # Type-based fallbacks run after the message patterns, so e.g. an Instagram
+    # "login required" error caused by an HTTP 403 stays LOGIN_REQUIRED.
     for e in chain:
+        if isinstance(e, HTTPError):
+            if e.status == 403:
+                return UserError(ErrorKind.FORBIDDEN, detail=detail)
+            if e.status == 429:
+                return UserError(ErrorKind.RATE_LIMITED, detail=detail)
         if isinstance(e, TransportError | ConnectionError | TimeoutError):
             return UserError(ErrorKind.NETWORK, detail=detail)
+        if is_lock_error(e):
+            return UserError(ErrorKind.FILE_LOCKED, detail=detail)
         if isinstance(e, OSError):
             return UserError(ErrorKind.DISK, detail=detail)
+        if isinstance(e, PostProcessingError):
+            return UserError(ErrorKind.POSTPROCESSING, detail=detail)
 
     return UserError(ErrorKind.UNKNOWN, detail=detail)

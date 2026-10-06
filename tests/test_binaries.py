@@ -100,3 +100,20 @@ def test_self_check_fails_on_any_missing_tool(tmp_path, missing):
     ok, lines = self_check(find_binaries([tmp_path], use_path=False))
     assert not ok
     assert strings.SELF_CHECK_MISSING.format(name=missing) in lines
+
+
+def test_component_versions_are_logged_and_in_self_check(tmp_path, caplog):
+    import yt_dlp_ejs
+    from yt_dlp.version import __version__ as ytdlp_version
+
+    from vidgrab.core.binaries import component_versions, log_component_versions
+
+    versions = component_versions()
+    assert versions == {"yt-dlp": ytdlp_version, "yt-dlp-ejs": str(yt_dlp_ejs.version)}
+    with caplog.at_level(logging.INFO):
+        log_component_versions()
+    assert f"yt-dlp {ytdlp_version}" in caplog.text
+    assert f"yt-dlp-ejs {yt_dlp_ejs.version}" in caplog.text
+    touch_tools(tmp_path)
+    _, lines = self_check(find_binaries([tmp_path], use_path=False))
+    assert f"yt-dlp {ytdlp_version}" in lines

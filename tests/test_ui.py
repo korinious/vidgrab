@@ -411,3 +411,28 @@ def test_choices_are_saved_and_restored(qapp, window, tmp_path, fake_ydl):
         assert VideoContainer(reopened.format_combo.currentData()) is VideoContainer.MKV
     finally:
         reopened.deleteLater()
+
+
+# --- 403 from the UI: shown as FORBIDDEN, and "retry" does a full new extract_info ------
+
+
+def test_forbidden_is_shown_and_ui_retry_extracts_again(qapp, window, fake_ydl):
+    from yt_dlp.utils import DownloadError
+
+    fetch(qapp, window)
+    forbidden = DownloadError("ERROR: unable to download video data: HTTP Error 403: Forbidden")
+    fake_ydl.scenario.attempt_errors = [forbidden] * 3  # every automatic attempt fails
+    job = window.enqueue_current()
+    wait_until(qapp, lambda: job.status is JobStatus.FAILED)
+    assert job.error.kind.value == "forbidden"
+    widget = window._job_items[job.id][1]
+    assert strings.ERR_FORBIDDEN in widget.status.text()
+    assert not widget.btn_retry.isHidden()
+    before = len(fake_ydl.instances)
+
+    fake_ydl.scenario.attempt_errors = []  # YouTube lets us through now
+    window.controller.retry(job.id)
+    wait_until(qapp, lambda: job.status is JobStatus.COMPLETED)
+    new = fake_ydl.instances[before:]
+    assert len(new) == 1
+    assert new[0].extract_calls == [(job.request.url, True)]  # fresh extract_info + download
