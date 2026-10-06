@@ -1,0 +1,72 @@
+name: Update yt-dlp
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Upgrade yt-dlp in uv.lock
+        run: uv lock --upgrade-package yt-dlp --upgrade-package yt-dlp-ejs
+
+      - name: Check for changes
+        id: diff
+        run: |
+          git diff --quiet -- uv.lock
+          if ($LASTEXITCODE -eq 0) {
+            "changed=false" >> $env:GITHUB_OUTPUT
+            Write-Host "yt-dlp is already up to date"
+          } else {
+            "changed=true" >> $env:GITHUB_OUTPUT
+            git diff --stat -- uv.lock
+          }
+          exit 0
+
+      - name: Install and test
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          uv sync --locked
+          uv run pytest
+
+      - name: Read new versions
+        if: steps.diff.outputs.changed == 'true'
+        id: versions
+        run: |
+          $yt = (uv run python -c "from yt_dlp.version import __version__; print(__version__)").Trim()
+          $ejs = (uv run python -c "import yt_dlp_ejs; print(yt_dlp_ejs.version)").Trim()
+          "ytdlp=$yt" >> $env:GITHUB_OUTPUT
+          "ejs=$ejs" >> $env:GITHUB_OUTPUT
+
+      - name: Open pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/update-yt-dlp
+          delete-branch: true
+          add-paths: uv.lock
+          commit-message: "Update yt-dlp to ${{ steps.versions.outputs.ytdlp }}"
+          title: "Update yt-dlp to ${{ steps.versions.outputs.ytdlp }}"
+          body: |
+            Automated weekly update of `uv.lock`.
+
+            - yt-dlp: `${{ steps.versions.outputs.ytdlp }}`
+            - yt-dlp-ejs: `${{ steps.versions.outputs.ejs }}`
+
+            Tests passed on windows-latest before this PR was opened.
+            Merge it, then tag a new release so users get the new extractor fixes.

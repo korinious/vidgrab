@@ -1,0 +1,154 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned external tools. To bump one, change the version/URL *and* the SHA256.
+  # FFmpeg "essentials" build by gyan.dev (GPL), mirrored on GitHub.
+  FFMPEG_VERSION: "8.0"
+  FFMPEG_URL: https://github.com/GyanD/codexffmpeg/releases/download/8.0/ffmpeg-8.0-essentials_build.zip
+  FFMPEG_ZIP_SHA256: ""
+  # Deno: SHA256 of deno.exe itself (identical to the binary in the @deno/win32-x64 npm package).
+  DENO_VERSION: "2.9.6"
+  DENO_URL: https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-pc-windows-msvc.zip
+  DENO_EXE_SHA256: 2ff9493dfa356be2975f477025ea770088e9e9cb2c83d983236d13561b96b7a6
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Determine version
+        id: version
+        run: |
+          $version = (uv run python -c "import vidgrab; print(vidgrab.__version__)").Trim()
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $tag = $env:GITHUB_REF_NAME
+            if ($tag -ne "v$version") {
+              throw "Tag $tag does not match vidgrab.__version__ ($version)"
+            }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "VidGrab $version"
+
+      - name: Download FFmpeg (pinned)
+        run: |
+          New-Item -ItemType Directory -Force -Path bin, downloads | Out-Null
+          Invoke-WebRequest -Uri $env:FFMPEG_URL -OutFile downloads/ffmpeg.zip
+          $hash = (Get-FileHash downloads/ffmpeg.zip -Algorithm SHA256).Hash.ToLower()
+          Write-Host "ffmpeg zip sha256: $hash"
+          if ($hash -ne $env:FFMPEG_ZIP_SHA256) {
+            throw "FFmpeg SHA256 mismatch: expected '$env:FFMPEG_ZIP_SHA256', got '$hash'"
+          }
+          Expand-Archive downloads/ffmpeg.zip -DestinationPath downloads/ffmpeg
+          $root = Get-ChildItem downloads/ffmpeg -Directory | Select-Object -First 1
+          Copy-Item "$($root.FullName)/bin/ffmpeg.exe", "$($root.FullName)/bin/ffprobe.exe" bin/
+          Copy-Item "$($root.FullName)/LICENSE" downloads/FFMPEG-LICENSE.txt -ErrorAction SilentlyContinue
+          ./bin/ffmpeg.exe -hide_banner -version | Select-Object -First 1
+
+      - name: Download Deno (pinned)
+        run: |
+          Invoke-WebRequest -Uri $env:DENO_URL -OutFile downloads/deno.zip
+          Expand-Archive downloads/deno.zip -DestinationPath downloads/deno
+          $hash = (Get-FileHash downloads/deno/deno.exe -Algorithm SHA256).Hash.ToLower()
+          Write-Host "deno.exe sha256: $hash"
+          if ($hash -ne $env:DENO_EXE_SHA256) {
+            throw "deno.exe SHA256 mismatch: expected '$env:DENO_EXE_SHA256', got '$hash'"
+          }
+          Copy-Item downloads/deno/deno.exe bin/
+          ./bin/deno.exe --version
+
+      - name: Build with PyInstaller (--onedir)
+        run: >
+          uv run pyinstaller
+          --noconfirm --clean
+          --onedir --windowed
+          --name VidGrab
+          --paths src
+          --add-binary "bin/ffmpeg.exe;bin"
+          --add-binary "bin/ffprobe.exe;bin"
+          --add-binary "bin/deno.exe;bin"
+          packaging/vidgrab_launcher.py
+
+      - name: Self-check the built app
+        run: |
+          $p = Start-Process -FilePath dist/VidGrab/VidGrab.exe `
+            -ArgumentList '--self-check', '--report', "$PWD/selfcheck.txt" `
+            -Wait -PassThru -NoNewWindow
+          if (Test-Path selfcheck.txt) { Get-Content selfcheck.txt }
+          if ($p.ExitCode -ne 0) { throw "Self-check failed with exit code $($p.ExitCode)" }
+
+      - name: Add licenses and zip
+        id: zip
+        run: |
+          $lic = New-Item -ItemType Directory -Force -Path dist/VidGrab/licenses
+          if (Test-Path downloads/FFMPEG-LICENSE.txt) { Copy-Item downloads/FFMPEG-LICENSE.txt $lic }
+          Copy-Item README.md dist/VidGrab/
+          $zip = "VidGrab-${{ steps.version.outputs.version }}-win64.zip"
+          Compress-Archive -Path dist/VidGrab -DestinationPath $zip
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+          Get-Item $zip | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VidGrab-${{ steps.version.outputs.version }}-win64
+          path: ${{ steps.zip.outputs.zip }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: VidGrab-*-win64
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: VidGrab-*-win64.zip
+          generate_release_notes: true
