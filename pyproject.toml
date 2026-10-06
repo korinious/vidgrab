@@ -1,0 +1,37 @@
+[project]
+name = "vidgrab"
+version = "0.1.0"
+description = "Windows desktop video downloader (PySide6 + yt-dlp)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "platformdirs>=4.12.3",
+    "pyside6-essentials>=6.11.2",
+    "yt-dlp[default]>=2026.8.19",
+]
+
+[project.scripts]
+vidgrab = "vidgrab.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11.32,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.3",
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
