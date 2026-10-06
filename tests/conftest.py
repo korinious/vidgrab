@@ -126,3 +126,49 @@ def binaries(tmp_path: Path) -> Binaries:
         ffprobe=bin_dir / "ffprobe.exe",
         deno=bin_dir / "deno.exe",
     )
+
+
+# --- Repo hygiene: tests must only write to tmp_path ------------------------------------
+# Untracked, non-ignored files that appear in the checkout during a test run fail the run.
+# (A stray relative output dir once committed "C:/Users/.../Downloads" into the repo, which
+# broke the Windows checkout.)
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _untracked_files() -> set[str] | None:
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None  # not a git checkout (e.g. sdist): nothing to compare
+    return {p for p in out.decode("utf-8", "surrogateescape").split("\0") if p}
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    session.config.stash[_UNTRACKED_KEY] = _untracked_files()
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    before = session.config.stash.get(_UNTRACKED_KEY, None)
+    after = _untracked_files()
+    if before is None or after is None:
+        return
+    leaked = sorted(after - before)
+    if leaked:
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        lines = ["Tests left files inside the repository (use tmp_path):", *leaked]
+        if reporter is not None:
+            reporter.write_sep("=", "repo hygiene", red=True)
+            for line in lines:
+                reporter.write_line(line)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+_UNTRACKED_KEY = pytest.StashKey[set[str] | None]()

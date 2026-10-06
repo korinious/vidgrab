@@ -4,10 +4,16 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Pinned external tools. To bump one, change the version/URL *and* the SHA256.
@@ -21,7 +27,17 @@ env:
   DENO_EXE_SHA256: 2ff9493dfa356be2975f477025ea770088e9e9cb2c83d983236d13561b96b7a6
 
 jobs:
+  # Runs on Linux first: a path that is invalid on Windows makes the Windows checkout
+  # itself fail, before any step could explain why.
+  paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject paths that are invalid on Windows
+        run: python3 scripts/check_paths.py
+
   test:
+    needs: paths
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

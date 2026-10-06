@@ -55,8 +55,12 @@ class Settings:
         if not isinstance(data, dict):
             log.warning("Settings file does not contain an object; using defaults")
             return s
-        if isinstance(data.get("output_dir"), str) and data["output_dir"].strip():
-            s.output_dir = data["output_dir"]
+        output_dir = data.get("output_dir")
+        if isinstance(output_dir, str) and output_dir.strip():
+            if Path(output_dir).is_absolute():
+                s.output_dir = output_dir
+            else:
+                log.warning("Ignoring relative output_dir %r in settings", output_dir)
         try:
             s.quality = Quality(data.get("quality", s.quality))
         except ValueError:

@@ -112,6 +112,11 @@ def download(
     )
     try:
         tracker.check_cancel()
+        if not request.output_dir.is_absolute():
+            # A relative dir would silently resolve against the current working directory.
+            raise UserError(
+                ErrorKind.DISK, detail=f"output dir is not absolute: {request.output_dir}"
+            )
         request.output_dir.mkdir(parents=True, exist_ok=True)
         opts = base_options(binaries, request.cookies)
         opts.update(format_options(request.quality))

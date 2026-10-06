@@ -1,5 +1,6 @@
 import json
 
+import platformdirs
 import pytest
 
 from vidgrab.core.models import CookieConfig, CookieSource, Quality
@@ -20,10 +21,17 @@ def test_defaults_when_missing(tmp_path):
     assert s.cookie_source is CookieSource.NONE
 
 
+def test_default_output_dir_is_the_users_downloads_folder():
+    # Computed per user at runtime, never a hardcoded path.
+    expected = platformdirs.user_downloads_path()
+    assert Settings().output_dir == str(expected)
+    assert expected.is_absolute()
+
+
 def test_roundtrip(tmp_path):
     path = tmp_path / "sub" / "settings.json"
     s = Settings(
-        output_dir="D:/Videos",
+        output_dir=str(tmp_path / "Videos"),
         quality=Quality.AUDIO_MP3,
         cookie_source=CookieSource.FILE,
         cookie_file="C:/c.txt",
@@ -39,8 +47,9 @@ def test_roundtrip(tmp_path):
 
 def test_greek_paths_survive(tmp_path):
     path = tmp_path / "settings.json"
-    save_settings(Settings(output_dir="C:/Χρήστες/Βίντεο"), path)
-    assert load_settings(path).output_dir == "C:/Χρήστες/Βίντεο"
+    greek = str(tmp_path / "Χρήστες" / "Βίντεο")
+    save_settings(Settings(output_dir=greek), path)
+    assert load_settings(path).output_dir == greek
 
 
 def test_corrupt_file_gives_defaults(tmp_path):
@@ -58,6 +67,7 @@ def test_corrupt_file_gives_defaults(tmp_path):
         ({"max_concurrent": 0}, lambda s: s.max_concurrent == 1),
         ({"max_concurrent": True}, lambda s: s.max_concurrent == DEFAULT_CONCURRENT),
         ({"output_dir": ""}, lambda s: s.output_dir == Settings().output_dir),
+        ({"output_dir": "relative/dir"}, lambda s: s.output_dir == Settings().output_dir),
         ([1, 2, 3], lambda s: s == Settings()),
     ],
 )
