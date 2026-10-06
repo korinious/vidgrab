@@ -30,12 +30,28 @@ from vidgrab import strings
 from vidgrab.core.binaries import Binaries
 from vidgrab.core.errors import UserError
 from vidgrab.core.jobqueue import DownloadJob
-from vidgrab.core.models import DownloadRequest, Quality, VideoInfo, format_duration
+from vidgrab.core.models import (
+    MP3_BITRATES,
+    AudioFormat,
+    DownloadRequest,
+    Quality,
+    VideoContainer,
+    VideoInfo,
+    format_duration,
+)
 from vidgrab.core.options import YdlFactory, default_ydl_factory
 from vidgrab.core.settings import Settings, save_settings
 from vidgrab.ui.controller import DownloadController
 from vidgrab.ui.dialogs import SettingsDialog
-from vidgrab.ui.labels import QUALITY_LABELS, QUALITY_ORDER
+from vidgrab.ui.labels import (
+    AUDIO_FORMAT_LABELS,
+    AUDIO_FORMAT_ORDER,
+    CONTAINER_LABELS,
+    CONTAINER_ORDER,
+    QUALITY_LABELS,
+    QUALITY_ORDER,
+    bitrate_label,
+)
 from vidgrab.ui.queue_widget import JobWidget
 from vidgrab.ui.workers import MetadataWorker
 
@@ -148,12 +164,28 @@ class MainWindow(QMainWindow):
             self.quality_combo.addItem(QUALITY_LABELS[q], q)
         self.quality_combo.setCurrentIndex(QUALITY_ORDER.index(self.settings.quality))
         self.quality_combo.currentIndexChanged.connect(self._on_quality_changed)
+
+        # Its items depend on the quality: MP4/MKV for video, MP3/Original for audio.
+        self.format_combo = QComboBox()
+        self.format_combo.currentIndexChanged.connect(self._on_format_changed)
+        self.bitrate_label = QLabel(strings.LABEL_BITRATE)
+        self.bitrate_combo = QComboBox()
+        for kbps in MP3_BITRATES:
+            self.bitrate_combo.addItem(bitrate_label(kbps), kbps)
+        self.bitrate_combo.setCurrentIndex(MP3_BITRATES.index(self.settings.mp3_bitrate))
+        self.bitrate_combo.setToolTip(strings.TOOLTIP_BITRATE)
+        self.bitrate_label.setToolTip(strings.TOOLTIP_BITRATE)
+        self.bitrate_combo.currentIndexChanged.connect(self._on_bitrate_changed)
         self.btn_download = QPushButton(strings.BTN_DOWNLOAD)
         self.btn_download.setEnabled(False)
         self.btn_download.clicked.connect(self.enqueue_current)
         options_row = QHBoxLayout()
         options_row.addWidget(QLabel(strings.LABEL_QUALITY))
         options_row.addWidget(self.quality_combo)
+        options_row.addWidget(QLabel(strings.LABEL_FORMAT))
+        options_row.addWidget(self.format_combo)
+        options_row.addWidget(self.bitrate_label)
+        options_row.addWidget(self.bitrate_combo)
         options_row.addStretch(1)
         options_row.addWidget(self.btn_download)
 
@@ -210,6 +242,8 @@ class MainWindow(QMainWindow):
         central = QWidget()
         central.setLayout(root)
         self.setCentralWidget(central)
+        # Filled once the layout exists, so show/hide only ever touches parented widgets.
+        self._fill_format_combo()
 
     def _show_binary_warnings(self) -> None:
         warnings = self.binaries.warnings()
@@ -294,6 +328,9 @@ class MainWindow(QMainWindow):
             output_dir=Path(self.settings.output_dir),
             cookies=self.settings.cookies,
             title=info.title,
+            container=self.settings.video_container,
+            audio_format=self.settings.audio_format,
+            mp3_bitrate=self.settings.mp3_bitrate,
         )
         job = self.controller.enqueue(request, info.thumbnail_url)
         self.statusBar().showMessage(strings.DOWNLOAD_ADDED.format(title=info.title), 4000)
@@ -354,6 +391,46 @@ class MainWindow(QMainWindow):
 
     def _on_quality_changed(self) -> None:
         self.settings = replace(self.settings, quality=self._selected_quality())
+        self._fill_format_combo()
+        self._save_settings()
+
+    def _fill_format_combo(self) -> None:
+        """Show the format choices for the current quality, preselecting the saved one."""
+        combo = self.format_combo
+        combo.blockSignals(True)
+        combo.clear()
+        if self._selected_quality().is_audio:
+            for fmt in AUDIO_FORMAT_ORDER:
+                combo.addItem(AUDIO_FORMAT_LABELS[fmt], fmt)
+            combo.setCurrentIndex(AUDIO_FORMAT_ORDER.index(self.settings.audio_format))
+            combo.setToolTip(strings.TOOLTIP_FORMAT_AUDIO)
+        else:
+            for container in CONTAINER_ORDER:
+                combo.addItem(CONTAINER_LABELS[container], container)
+            combo.setCurrentIndex(CONTAINER_ORDER.index(self.settings.video_container))
+            combo.setToolTip(strings.TOOLTIP_FORMAT_VIDEO)
+        combo.blockSignals(False)
+        self._sync_bitrate_visibility()
+
+    def _sync_bitrate_visibility(self) -> None:
+        show = self._selected_quality().is_audio and self.settings.audio_format is AudioFormat.MP3
+        self.bitrate_label.setVisible(show)
+        self.bitrate_combo.setVisible(show)
+
+    def _on_format_changed(self) -> None:
+        data = self.format_combo.currentData()
+        if data is None:
+            return
+        # QComboBox hands StrEnum item data back as plain str; convert at the boundary.
+        if self._selected_quality().is_audio:
+            self.settings = replace(self.settings, audio_format=AudioFormat(data))
+        else:
+            self.settings = replace(self.settings, video_container=VideoContainer(data))
+        self._sync_bitrate_visibility()
+        self._save_settings()
+
+    def _on_bitrate_changed(self) -> None:
+        self.settings = replace(self.settings, mp3_bitrate=int(self.bitrate_combo.currentData()))
         self._save_settings()
 
     def _update_dest_label(self) -> None:

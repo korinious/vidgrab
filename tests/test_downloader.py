@@ -76,7 +76,7 @@ def test_postprocessor_filepath_wins(tmp_path, fake_ydl, binaries):
         {"status": "finished", "info_dict": {"filepath": final}},
     ]
     path = download(
-        make_request(tmp_path, Quality.AUDIO_MP3),
+        make_request(tmp_path, Quality.AUDIO),
         binaries,
         lambda p: None,
         threading.Event(),
@@ -108,7 +108,7 @@ def test_options_passed_to_ytdlp(tmp_path, fake_ydl, binaries):
 
 def test_audio_options(tmp_path, fake_ydl, binaries):
     download(
-        make_request(tmp_path, Quality.AUDIO_MP3),
+        make_request(tmp_path, Quality.AUDIO),
         binaries,
         lambda p: None,
         threading.Event(),
@@ -224,3 +224,114 @@ def test_relative_output_dir_is_rejected(tmp_path, fake_ydl, binaries, monkeypat
     assert ei.value.kind is ErrorKind.DISK
     assert fake_ydl.instances == []
     assert list(tmp_path.iterdir()) == []  # nothing created relative to the CWD
+
+
+# --- formats and MP4 audio check -----------------------------------------------------
+
+
+def test_request_format_choices_reach_ytdlp(tmp_path, fake_ydl, binaries):
+    from vidgrab.core.models import AudioFormat, VideoContainer
+
+    req = DownloadRequest(
+        "https://youtu.be/abc123",
+        Quality.P1080,
+        tmp_path / "out",
+        container=VideoContainer.MKV,
+    )
+    download(req, binaries, lambda p: None, threading.Event(), ydl_factory=fake_ydl)
+    assert fake_ydl.last_params["merge_output_format"] == "mkv"
+
+    req = DownloadRequest(
+        "https://youtu.be/abc123",
+        Quality.AUDIO,
+        tmp_path / "out",
+        audio_format=AudioFormat.MP3,
+        mp3_bitrate=320,
+    )
+    download(req, binaries, lambda p: None, threading.Event(), ydl_factory=fake_ydl)
+    assert fake_ydl.last_params["postprocessors"][0]["preferredquality"] == "320"
+
+
+def _bins_that_exist(tmp_path):
+    from vidgrab.core.binaries import Binaries
+
+    d = tmp_path / "realbin"
+    d.mkdir(exist_ok=True)
+    for name in ("ffmpeg", "ffprobe"):
+        (d / name).write_bytes(b"")
+    return Binaries(ffmpeg=d / "ffmpeg", ffprobe=d / "ffprobe")
+
+
+def _recording_runner(codec):
+    from vidgrab.core.audiofix import CommandResult
+
+    calls = []
+
+    def runner(args, cancel_event):
+        calls.append(list(args))
+        if Path(args[0]).name == "ffprobe":
+            return CommandResult(0, codec + "\n")
+        Path(args[-1]).write_bytes(b"aac")
+        return CommandResult(0)
+
+    runner.calls = calls
+    return runner
+
+
+def test_mp4_with_opus_audio_gets_aac(tmp_path, fake_ydl):
+    fake_ydl.scenario.final_name = "v.mp4"
+    runner = _recording_runner("opus")
+    updates = []
+    path = download(
+        make_request(tmp_path),  # BEST + MP4 (default)
+        _bins_that_exist(tmp_path),
+        updates.append,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        runner=runner,
+    )
+    assert path.read_bytes() == b"aac"
+    assert [Path(c[0]).name for c in runner.calls] == ["ffprobe", "ffmpeg"]
+    assert updates[-1].phase is Phase.POSTPROCESSING
+
+
+@pytest.mark.parametrize(
+    ("quality", "container"),
+    [(Quality.BEST, "mkv"), (Quality.AUDIO, "mp4")],
+)
+def test_no_audio_check_for_mkv_or_audio_only(tmp_path, fake_ydl, quality, container):
+    from vidgrab.core.models import VideoContainer
+
+    fake_ydl.scenario.final_name = "v.mkv" if container == "mkv" else "song.mp3"
+    runner = _recording_runner("opus")
+    req = DownloadRequest(
+        "https://youtu.be/abc123", quality, tmp_path / "out", container=VideoContainer(container)
+    )
+    download(
+        req,
+        _bins_that_exist(tmp_path),
+        lambda p: None,
+        threading.Event(),
+        ydl_factory=fake_ydl,
+        runner=runner,
+    )
+    assert runner.calls == []
+
+
+def test_cancel_before_audio_check(tmp_path, fake_ydl):
+    cancel = threading.Event()
+    fake_ydl.scenario.final_name = "v.mp4"
+    fake_ydl.scenario.progress_events = [{"status": "downloading", "create": "v.mp4"}]
+    fake_ydl.scenario.between_events = lambda i: cancel.set()
+    runner = _recording_runner("opus")
+    with pytest.raises(UserError) as ei:
+        download(
+            make_request(tmp_path),
+            _bins_that_exist(tmp_path),
+            lambda p: None,
+            cancel,
+            ydl_factory=fake_ydl,
+            runner=runner,
+        )
+    assert ei.value.kind is ErrorKind.CANCELLED
+    assert runner.calls == []

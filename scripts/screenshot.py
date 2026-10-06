@@ -25,7 +25,7 @@ from yt_dlp.utils import DownloadError  # noqa: E402
 
 from conftest import FakeYdlFactory  # noqa: E402
 from vidgrab.core.binaries import Binaries  # noqa: E402
-from vidgrab.core.models import JobStatus, Quality  # noqa: E402
+from vidgrab.core.models import AudioFormat, JobStatus, Quality, VideoContainer  # noqa: E402
 from vidgrab.core.settings import Settings  # noqa: E402
 from vidgrab.ui.main_window import MainWindow  # noqa: E402
 
@@ -57,6 +57,12 @@ def main(out_png: Path) -> None:
         win.fetch_metadata()
         pump(win.btn_fetch.isEnabled)
 
+        def choose(combo, value):
+            combo.setCurrentIndex(combo.findData(value))
+
+        # Completed: 1080p MP4
+        choose(win.quality_combo, Quality.P1080)
+        choose(win.format_combo, VideoContainer.MP4)
         fake.scenario.final_name = "done.mp4"
         done = win.enqueue_current()
         pump(lambda: done.status is JobStatus.COMPLETED)
@@ -67,6 +73,9 @@ def main(out_png: Path) -> None:
             "rate-limit reached or login required"
         )
         fake.scenario.progress_events = [{"status": "downloading", "create": "a"}]
+        # Failed: best quality as MKV
+        choose(win.quality_combo, Quality.BEST)
+        choose(win.format_combo, VideoContainer.MKV)
         failed = win.enqueue_current()
         pump(lambda: failed.status is JobStatus.FAILED)
 
@@ -84,7 +93,11 @@ def main(out_png: Path) -> None:
         }
         fake.scenario.progress_events = [event, event]
         fake.scenario.between_events = lambda i: gate.wait(10) if i == 1 else None
-        win.quality_combo.setCurrentIndex(win.quality_combo.findData(Quality.P1080))
+        # Running: audio only, MP3 at 192 kbps. This also leaves the switch showing the
+        # format and bitrate dropdowns in the screenshot.
+        choose(win.quality_combo, Quality.AUDIO)
+        choose(win.format_combo, AudioFormat.MP3)
+        choose(win.bitrate_combo, 192)
         running = win.enqueue_current()
         pump(lambda: running.progress is not None)
         for _ in range(20):

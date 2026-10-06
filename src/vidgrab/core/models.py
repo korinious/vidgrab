@@ -12,7 +12,25 @@ class Quality(StrEnum):
     BEST = "best"
     P1080 = "1080p"
     P720 = "720p"
-    AUDIO_MP3 = "audio_mp3"
+    AUDIO = "audio"
+
+    @property
+    def is_audio(self) -> bool:
+        return self is Quality.AUDIO
+
+
+class VideoContainer(StrEnum):
+    MP4 = "mp4"  # H.264/AAC-friendly, plays everywhere; audio converted to AAC if needed
+    MKV = "mkv"  # original streams, no conversion
+
+
+class AudioFormat(StrEnum):
+    MP3 = "mp3"
+    ORIGINAL = "original"  # m4a/opus as delivered, no conversion
+
+
+MP3_BITRATES: tuple[int, ...] = (128, 192, 256, 320)
+DEFAULT_MP3_BITRATE = 192
 
 
 class CookieSource(StrEnum):
@@ -123,8 +141,13 @@ class Progress:
 
 @dataclass(frozen=True)
 class DownloadRequest:
+    """Everything one queued download needs. Frozen: changing the UI later never affects it."""
+
     url: str
     quality: Quality
     output_dir: Path
     cookies: CookieConfig = field(default_factory=CookieConfig)
     title: str | None = None  # display only
+    container: VideoContainer = VideoContainer.MP4  # used when quality is a video quality
+    audio_format: AudioFormat = AudioFormat.MP3  # used when quality is AUDIO
+    mp3_bitrate: int = DEFAULT_MP3_BITRATE  # kbps, used for AudioFormat.MP3

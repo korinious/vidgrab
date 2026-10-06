@@ -5,8 +5,19 @@ import pytest
 from vidgrab import strings
 from vidgrab.core.errors import ErrorKind, UserError
 from vidgrab.core.jobqueue import DownloadJob
-from vidgrab.core.models import DownloadRequest, JobStatus, Progress, Quality
+from vidgrab.core.models import (
+    AudioFormat,
+    DownloadRequest,
+    JobStatus,
+    Progress,
+    Quality,
+    VideoContainer,
+)
 from vidgrab.ui.labels import (
+    AUDIO_FORMAT_LABELS,
+    AUDIO_FORMAT_ORDER,
+    CONTAINER_LABELS,
+    CONTAINER_ORDER,
     QUALITY_LABELS,
     QUALITY_ORDER,
     STATUS_LABELS,
@@ -15,6 +26,7 @@ from vidgrab.ui.labels import (
     format_speed,
     job_status_text,
     progress_text,
+    request_format_text,
 )
 
 
@@ -65,3 +77,27 @@ def test_job_status_text():
     job.error = None
     job.output_path = Path("o/video.mp4")
     assert "video.mp4" in job_status_text(job)
+
+
+def test_format_labels_cover_all_enums():
+    assert set(CONTAINER_LABELS) == set(VideoContainer) == set(CONTAINER_ORDER)
+    assert set(AUDIO_FORMAT_LABELS) == set(AudioFormat) == set(AUDIO_FORMAT_ORDER)
+    assert CONTAINER_ORDER[0] is VideoContainer.MP4  # MP4 is the default, listed first
+    assert AUDIO_FORMAT_ORDER[0] is AudioFormat.MP3
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"quality": Quality.P1080}, "1080p · MP4"),
+        ({"quality": Quality.BEST, "container": VideoContainer.MKV}, "Καλύτερη διαθέσιμη · MKV"),
+        ({"quality": Quality.AUDIO, "mp3_bitrate": 320}, "Μόνο ήχος · MP3 320 kbps"),
+        (
+            {"quality": Quality.AUDIO, "audio_format": AudioFormat.ORIGINAL, "mp3_bitrate": 320},
+            "Μόνο ήχος · Αρχικό (m4a/opus)",
+        ),
+    ],
+)
+def test_request_format_text(kwargs, expected):
+    req = DownloadRequest("https://x", output_dir=Path("o"), **kwargs)
+    assert request_format_text(req) == expected

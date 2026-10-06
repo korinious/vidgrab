@@ -51,6 +51,10 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
   case, add a test in `tests/test_errors.py` and the message in `strings.py`.
 - Cancellation is cooperative: a `threading.Event` checked in the yt-dlp progress hook,
   which raises `DownloadCancelled`. Never use `QThread.terminate()`.
+- Output formats live in `core/formats.py` (yt-dlp options per quality/container/audio
+  format). Video is **never** re-encoded. MP4 downloads go through `core/audiofix.py`, which
+  converts only non-MP4-friendly audio (opus/vorbis/...) to AAC. Format choices are fields
+  of the frozen `DownloadRequest`, so UI changes never affect queued or running jobs.
 - External binaries (ffmpeg, ffprobe, deno) are found only via `core/binaries.py`.
   Deno is passed to yt-dlp via `js_runtimes`. YouTube needs it for full format access.
 - Settings: JSON at `%APPDATA%\VidGrab\settings.json` (`core/settings.py`).

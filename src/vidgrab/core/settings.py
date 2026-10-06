@@ -13,7 +13,15 @@ from typing import Any
 import platformdirs
 
 from vidgrab import APP_NAME
-from vidgrab.core.models import CookieConfig, CookieSource, Quality
+from vidgrab.core.models import (
+    DEFAULT_MP3_BITRATE,
+    MP3_BITRATES,
+    AudioFormat,
+    CookieConfig,
+    CookieSource,
+    Quality,
+    VideoContainer,
+)
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +45,10 @@ class Settings:
     cookie_source: CookieSource = CookieSource.NONE
     cookie_file: str | None = None
     max_concurrent: int = DEFAULT_CONCURRENT
+    # Last format choices from the main window, restored on the next start.
+    video_container: VideoContainer = VideoContainer.MP4
+    audio_format: AudioFormat = AudioFormat.MP3
+    mp3_bitrate: int = DEFAULT_MP3_BITRATE
 
     @property
     def cookies(self) -> CookieConfig:
@@ -46,6 +58,8 @@ class Settings:
         data = asdict(self)
         data["quality"] = self.quality.value
         data["cookie_source"] = self.cookie_source.value
+        data["video_container"] = self.video_container.value
+        data["audio_format"] = self.audio_format.value
         return data
 
     @classmethod
@@ -61,10 +75,26 @@ class Settings:
                 s.output_dir = output_dir
             else:
                 log.warning("Ignoring relative output_dir %r in settings", output_dir)
+        quality = data.get("quality", s.quality)
+        if quality == "audio_mp3":  # written by v0.1.0, before audio formats existed
+            quality, s.audio_format = Quality.AUDIO, AudioFormat.MP3
         try:
-            s.quality = Quality(data.get("quality", s.quality))
+            s.quality = Quality(quality)
         except ValueError:
-            log.warning("Unknown quality %r in settings; using default", data.get("quality"))
+            log.warning("Unknown quality %r in settings; using default", quality)
+        try:
+            s.video_container = VideoContainer(data.get("video_container", s.video_container))
+        except ValueError:
+            log.warning("Unknown video container %r in settings", data.get("video_container"))
+        try:
+            s.audio_format = AudioFormat(data.get("audio_format", s.audio_format))
+        except ValueError:
+            log.warning("Unknown audio format %r in settings", data.get("audio_format"))
+        bitrate = data.get("mp3_bitrate")
+        if bitrate in MP3_BITRATES and not isinstance(bitrate, bool):
+            s.mp3_bitrate = bitrate
+        elif bitrate is not None:
+            log.warning("Unsupported MP3 bitrate %r in settings", bitrate)
         try:
             s.cookie_source = CookieSource(data.get("cookie_source", s.cookie_source))
         except ValueError:

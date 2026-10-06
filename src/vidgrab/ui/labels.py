@@ -5,21 +5,58 @@ from __future__ import annotations
 from vidgrab import strings
 from vidgrab.core.errors import UserError
 from vidgrab.core.jobqueue import DownloadJob
-from vidgrab.core.models import JobStatus, Progress, Quality
+from vidgrab.core.models import (
+    AudioFormat,
+    DownloadRequest,
+    JobStatus,
+    Progress,
+    Quality,
+    VideoContainer,
+)
 
 QUALITY_ORDER: tuple[Quality, ...] = (
     Quality.BEST,
     Quality.P1080,
     Quality.P720,
-    Quality.AUDIO_MP3,
+    Quality.AUDIO,
 )
 
 QUALITY_LABELS: dict[Quality, str] = {
     Quality.BEST: strings.QUALITY_BEST,
     Quality.P1080: strings.QUALITY_1080P,
     Quality.P720: strings.QUALITY_720P,
-    Quality.AUDIO_MP3: strings.QUALITY_AUDIO_MP3,
+    Quality.AUDIO: strings.QUALITY_AUDIO,
 }
+
+CONTAINER_ORDER: tuple[VideoContainer, ...] = (VideoContainer.MP4, VideoContainer.MKV)
+CONTAINER_LABELS: dict[VideoContainer, str] = {
+    VideoContainer.MP4: strings.FORMAT_MP4,
+    VideoContainer.MKV: strings.FORMAT_MKV,
+}
+
+AUDIO_FORMAT_ORDER: tuple[AudioFormat, ...] = (AudioFormat.MP3, AudioFormat.ORIGINAL)
+AUDIO_FORMAT_LABELS: dict[AudioFormat, str] = {
+    AudioFormat.MP3: strings.AUDIO_FORMAT_MP3,
+    AudioFormat.ORIGINAL: strings.AUDIO_FORMAT_ORIGINAL,
+}
+
+
+def bitrate_label(kbps: int) -> str:
+    return strings.BITRATE_ITEM.format(kbps=kbps)
+
+
+def request_format_text(request: DownloadRequest) -> str:
+    """Short description of a job's choices, e.g. "1080p · MP4" or "Μόνο ήχος · MP3 192 kbps"."""
+    quality = Quality(request.quality)
+    if quality.is_audio:
+        audio = AudioFormat(request.audio_format)
+        fmt = AUDIO_FORMAT_LABELS[audio]
+        if audio is AudioFormat.MP3:
+            fmt = f"{fmt} {bitrate_label(request.mp3_bitrate)}"
+    else:
+        fmt = CONTAINER_LABELS[VideoContainer(request.container)]
+    return strings.JOB_FORMAT.format(quality=QUALITY_LABELS[quality], format=fmt)
+
 
 STATUS_LABELS: dict[JobStatus, str] = {
     JobStatus.QUEUED: strings.STATUS_QUEUED,

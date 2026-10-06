@@ -51,7 +51,30 @@ OPEN_FILE_FAILED = "Δεν ήταν δυνατό το άνοιγμα: {path}"
 QUALITY_BEST = "Καλύτερη διαθέσιμη"
 QUALITY_1080P = "1080p"
 QUALITY_720P = "720p"
-QUALITY_AUDIO_MP3 = "Μόνο ήχος (MP3)"
+QUALITY_AUDIO = "Μόνο ήχος"
+
+# --- Output format ----------------------------------------------------------------------
+LABEL_FORMAT = "Μορφή:"
+LABEL_BITRATE = "Bitrate:"
+FORMAT_MP4 = "MP4"
+FORMAT_MKV = "MKV"
+AUDIO_FORMAT_MP3 = "MP3"
+AUDIO_FORMAT_ORIGINAL = "Αρχικό (m4a/opus)"
+BITRATE_ITEM = "{kbps} kbps"
+TOOLTIP_FORMAT_VIDEO = (
+    "MP4: παίζει παντού. Αν ο ήχος δεν είναι συμβατός, μετατρέπεται μόνο ο ήχος σε AAC· "
+    "η εικόνα δεν επανακωδικοποιείται ποτέ.\n"
+    "MKV: οι αρχικές ροές εικόνας και ήχου, χωρίς καμία μετατροπή."
+)
+TOOLTIP_FORMAT_AUDIO = (
+    "MP3: μετατροπή σε MP3 στο bitrate που επιλέγεις.\n"
+    "Αρχικό: ο ήχος όπως τον δίνει ο ιστότοπος (συνήθως m4a ή opus), χωρίς μετατροπή."
+)
+TOOLTIP_BITRATE = (
+    "Η πηγή του YouTube είναι περίπου 128–160 kbps, οπότε τα 256 ή 320 kbps "
+    "δεν βελτιώνουν την ποιότητα· απλώς μεγαλώνουν το αρχείο."
+)
+JOB_FORMAT = "{quality} · {format}"
 
 # --- Cookie sources ---------------------------------------------------------------------
 COOKIES_NONE = "Κανένα"

@@ -10,10 +10,11 @@ from typing import Any
 
 from yt_dlp.utils import DownloadCancelled
 
+from vidgrab.core.audiofix import CommandRunner, ensure_mp4_audio, run_command
 from vidgrab.core.binaries import Binaries
 from vidgrab.core.errors import ErrorKind, UserError, classify
 from vidgrab.core.formats import format_options
-from vidgrab.core.models import DownloadRequest, Phase, Progress
+from vidgrab.core.models import DownloadRequest, Phase, Progress, Quality, VideoContainer
 from vidgrab.core.options import OUTPUT_TEMPLATE, YdlFactory, base_options, default_ydl_factory
 
 log = logging.getLogger(__name__)
@@ -98,17 +99,29 @@ def _final_path(info: Any, tracker: _Tracker) -> Path | None:
     return Path(tracker.streams[-1]) if tracker.streams else None
 
 
+def _wants_mp4_audio_check(request: DownloadRequest) -> bool:
+    quality, container = Quality(request.quality), VideoContainer(request.container)
+    return not quality.is_audio and container is VideoContainer.MP4
+
+
 def download(
     request: DownloadRequest,
     binaries: Binaries,
     on_progress: ProgressCallback,
     cancel_event: threading.Event,
     ydl_factory: YdlFactory = default_ydl_factory,
+    runner: CommandRunner = run_command,
 ) -> Path | None:
     """Download one video. Returns the final file path (if known). Raises UserError."""
     tracker = _Tracker(on_progress, cancel_event)
     log.info(
-        "Starting download %s (quality=%s) -> %s", request.url, request.quality, request.output_dir
+        "Starting download %s (quality=%s, container=%s, audio=%s, mp3=%dk) -> %s",
+        request.url,
+        request.quality,
+        request.container,
+        request.audio_format,
+        request.mp3_bitrate,
+        request.output_dir,
     )
     try:
         tracker.check_cancel()
@@ -119,7 +132,11 @@ def download(
             )
         request.output_dir.mkdir(parents=True, exist_ok=True)
         opts = base_options(binaries, request.cookies)
-        opts.update(format_options(request.quality))
+        opts.update(
+            format_options(
+                request.quality, request.container, request.audio_format, request.mp3_bitrate
+            )
+        )
         opts.update(
             {
                 "outtmpl": {"default": str(request.output_dir / OUTPUT_TEMPLATE)},
@@ -129,6 +146,11 @@ def download(
         )
         with ydl_factory(opts) as ydl:
             info = ydl.extract_info(request.url, download=True)
+        path = _final_path(info, tracker)
+        if _wants_mp4_audio_check(request) and path is not None:
+            tracker.check_cancel()
+            on_progress(Progress(phase=Phase.POSTPROCESSING))
+            ensure_mp4_audio(path, binaries, cancel_event, runner)
     except Exception as exc:
         err = UserError(ErrorKind.CANCELLED) if cancel_event.is_set() else classify(exc)
         if err.kind is ErrorKind.CANCELLED:
@@ -144,6 +166,5 @@ def download(
             )
         raise err from exc
 
-    path = _final_path(info, tracker)
     log.info("Download finished: %s -> %s", request.url, path)
     return path

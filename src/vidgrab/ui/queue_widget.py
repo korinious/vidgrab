@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from vidgrab import strings
 from vidgrab.core.jobqueue import DownloadJob
 from vidgrab.core.models import JobStatus
-from vidgrab.ui.labels import QUALITY_LABELS, job_status_text
+from vidgrab.ui.labels import job_status_text, request_format_text
 
 THUMB_SIZE = (96, 54)
 
@@ -45,7 +45,7 @@ class JobWidget(QWidget):
         font.setBold(True)
         self.title.setFont(font)
 
-        self.quality = QLabel(QUALITY_LABELS[job.request.quality])
+        self.quality = QLabel(request_format_text(job.request))
         self.quality.setStyleSheet("color: gray;")
 
         self.status = QLabel()
