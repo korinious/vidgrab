@@ -93,7 +93,24 @@ them on `PATH`. The frozen app looks in `<app>/_internal/bin/`.
   Linux, runs tests, then builds `VidGrab/` with PyInstaller
   (`--onedir --windowed`) on windows-latest, bundling pinned ffmpeg/ffprobe/deno
   (SHA256 verified), runs `VidGrab.exe --self-check`, and uploads `VidGrab-<ver>-win64.zip`.
-- Push a tag `vX.Y.Z` to publish that zip to GitHub Releases.
+- Releases: see "Release procedure" below.
 - `.github/workflows/update-ytdlp.yml` runs weekly. It upgrades yt-dlp in `uv.lock`,
   runs tests, and opens a PR if anything changed.
 - To bump a pinned binary, update the URL and SHA256 in `build.yml`.
+
+## Release procedure
+
+This cloud session **cannot push tags** (the git proxy only accepts branch pushes), so
+releases are created in the GitHub UI:
+
+1. In a PR: bump the version in both `src/vidgrab/__init__.py` and `pyproject.toml`, and add
+   `docs/release-notes/vX.Y.Z.md` (Greek: features and known issues). `test_version.py`
+   fails if the notes for the current version are missing. Merge to `main`.
+2. GitHub → Releases → **Create new release** → new tag `vX.Y.Z` on `main`. Use the title
+   `VidGrab vX.Y.Z` and paste the notes file into the body. Publish.
+3. The tag starts `build.yml`. It fails early if the tag doesn't match `__version__` or
+   the notes file is missing. Then it builds, self-checks, and the `release` job attaches
+   `VidGrab-X.Y.Z-win64.zip` with `gh release upload`. **It never changes the title or
+   body of an existing release.** If no release exists (e.g. a tag pushed from a local
+   machine), it creates one from the notes file.
+4. Check that the run is green and the zip is under the release's Assets.
