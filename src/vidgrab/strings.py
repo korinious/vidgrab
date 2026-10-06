@@ -42,6 +42,11 @@ COOKIES_HINT = (
     "Προτείνεται ο Firefox."
 )
 
+CONFIRM_EXIT_TITLE = "Έξοδος"
+CONFIRM_EXIT_TEXT = "Υπάρχουν λήψεις σε εξέλιξη. Να ακυρωθούν και να κλείσει η εφαρμογή;"
+DOWNLOAD_ADDED = "Προστέθηκε στην ουρά: {title}"
+OPEN_FILE_FAILED = "Δεν ήταν δυνατό το άνοιγμα: {path}"
+
 # --- Quality ----------------------------------------------------------------------------
 QUALITY_BEST = "Καλύτερη διαθέσιμη"
 QUALITY_1080P = "1080p"
@@ -65,6 +70,7 @@ STATUS_FAILED = "Απέτυχε"
 STATUS_CANCELLED = "Ακυρώθηκε"
 PROGRESS_DETAIL = "{percent} · {speed} · απομένει {eta}"
 PROGRESS_STREAM = "Ροή {index}/{count}"
+STATUS_WITH_MESSAGE = "{status}: {message}"
 UNKNOWN_VALUE = "—"
 
 # --- Warnings ---------------------------------------------------------------------------

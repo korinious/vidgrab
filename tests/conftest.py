@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +11,9 @@ from typing import Any
 import pytest
 
 from vidgrab.core.binaries import Binaries
+
+# UI tests run headless (also on the Linux dev VM, which has no display).
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 HookEvent = dict[str, Any]
 

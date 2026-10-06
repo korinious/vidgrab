@@ -34,3 +34,7 @@ def test_every_quality_has_a_valid_yt_dlp_format(quality):
     with YoutubeDL({"quiet": True}) as ydl:
         # Raises SyntaxError on an invalid format spec.
         ydl.build_format_selector(format_options(quality)["format"])
+
+
+def test_plain_string_value_is_accepted():
+    assert format_options("audio_mp3") == format_options(Quality.AUDIO_MP3)  # type: ignore[arg-type]

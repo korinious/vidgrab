@@ -39,7 +39,8 @@ def default_search_dirs() -> list[Path]:
         dirs.append(Path(meipass) / "bin")
     if env := os.environ.get(BIN_DIR_ENV):
         dirs.append(Path(env))
-    dirs.append(Path(__file__).resolve().parents[3] / "bin")  # repo root in dev checkouts
+    if not getattr(sys, "frozen", False):
+        dirs.append(Path(__file__).resolve().parents[3] / "bin")  # repo root in dev checkouts
     return dirs
 
 

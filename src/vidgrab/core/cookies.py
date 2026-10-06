@@ -35,6 +35,7 @@ _BROWSERS: dict[CookieSource, str] = {
 
 def cookie_options(config: CookieConfig) -> dict[str, Any]:
     """Return yt-dlp params for the cookie config. Raises UserError for a missing file."""
+    config = CookieConfig(CookieSource(config.source), config.file_path)  # accept plain str
     if config.source is CookieSource.NONE:
         return {}
     if config.source is CookieSource.FILE:

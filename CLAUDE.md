@@ -6,12 +6,14 @@ FFmpeg + Deno bundled next to the app, PyInstaller `--onedir`, uv for dependenci
 ## Layout
 
 - `src/vidgrab/core/`: all logic. **Must never import PySide6/Qt** (a test enforces this).
-- `src/vidgrab/ui/`: thin PySide6 layer. Runs core calls in `QThread` workers and turns
-  callbacks into Qt signals. No business logic here.
+- `src/vidgrab/ui/`: thin PySide6 layer. `workers.py` runs core calls in `QThread`s and
+  turns callbacks into signals; `controller.py` connects `core.jobqueue.DownloadQueue` to
+  the workers. No business logic here.
 - `src/vidgrab/strings.py`: **every** user-visible string (Greek for now). UI code and
   error messages reference constants from here, never inline literals, so English can be
   added later.
-- `tests/`: pytest, core only (plus one offscreen UI import smoke test).
+- `tests/`: pytest. Core tests, plus `test_ui.py`, which drives the real widgets headless
+  (`QT_QPA_PLATFORM=offscreen`, set in `conftest.py`) with the fake yt-dlp.
 
 ## Commands
 
@@ -27,8 +29,12 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
 
 ## Rules
 
-- This repo is often developed on a Linux cloud VM where **the GUI cannot be run**.
-  Verify through core tests, the offscreen smoke test, and the Windows CI build.
+- This repo is often developed on a Linux cloud VM where **the GUI cannot be seen**.
+  Verify through core tests, the offscreen UI tests, and the Windows CI build. On a
+  fresh Linux box the offscreen tests need `apt-get install libegl1 libgl1 libxkbcommon0
+  libfontconfig1 libdbus-1-3`. Without them `test_ui.py` is skipped, not failed.
+- `QComboBox.currentData()` returns StrEnum values as plain `str`. Convert them back
+  (`Quality(...)`, `CookieSource(...)`) when reading from a widget.
 - Tests never touch the network and never download anything. Use the `FakeYoutubeDL`
   fixture from `tests/conftest.py`. The core takes a `ydl_factory` argument for this.
 - yt-dlp exceptions are mapped to `UserError` in `core/errors.py`. When you add a new

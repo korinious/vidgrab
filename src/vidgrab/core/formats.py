@@ -17,6 +17,7 @@ _VIDEO_FORMATS: dict[Quality, str] = {
 
 def format_options(quality: Quality) -> dict[str, Any]:
     """Return the yt-dlp params for the requested quality."""
+    quality = Quality(quality)  # also accept the plain str value
     if quality is Quality.AUDIO_MP3:
         return {
             "format": "ba/b",
