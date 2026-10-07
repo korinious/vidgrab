@@ -12,11 +12,11 @@ BTN_FETCH = "Ανάλυση"
 BTN_DOWNLOAD = "Λήψη"
 BTN_BROWSE = "Αλλαγή…"
 BTN_OPEN_FOLDER = "Άνοιγμα φακέλου"
-BTN_OPEN_LOGS = "Αρχείο καταγραφής"
+BTN_OPEN_LOGS = "Άνοιγμα φακέλου logs"
 BTN_SETTINGS = "Ρυθμίσεις"
 BTN_CANCEL = "Ακύρωση"
 BTN_RETRY = "Επανάληψη"
-BTN_REMOVE = "Αφαίρεση"
+BTN_REMOVE = "Αφαίρεση από τη λίστα"
 BTN_CLEAR_FINISHED = "Καθαρισμός ολοκληρωμένων"
 BTN_DETAILS = "Λεπτομέρειες"
 
@@ -44,7 +44,6 @@ COOKIES_HINT = (
 
 CONFIRM_EXIT_TITLE = "Έξοδος"
 CONFIRM_EXIT_TEXT = "Υπάρχουν λήψεις σε εξέλιξη. Να ακυρωθούν και να κλείσει η εφαρμογή;"
-DOWNLOAD_ADDED = "Προστέθηκε στην ουρά: {title}"
 OPEN_FILE_FAILED = "Δεν ήταν δυνατό το άνοιγμα: {path}"
 
 # --- Quality ----------------------------------------------------------------------------
@@ -164,3 +163,39 @@ ERR_UNKNOWN = "Κάτι πήγε στραβά. Δες το αρχείο κατα
 # --- Self-check (console output, kept here for consistency) -----------------------------
 SELF_CHECK_FOUND = "OK       {name}: {path}"
 SELF_CHECK_MISSING = "MISSING  {name}"
+
+
+# --- Modern UI (header, preview, queue, footer, theme) -------------------------------
+VERSION_CHIP = "v{version}"
+BTN_THEME = "Θέμα"
+THEME_AUTO = "Αυτόματο (όπως τα Windows)"
+THEME_LIGHT = "Φωτεινό"
+THEME_DARK = "Σκούρο"
+LABEL_THEME = "Θέμα:"
+BTN_FETCH_TOOLTIP = "Ανάλυση συνδέσμου"
+URL_FIELD_NAME = "Σύνδεσμος βίντεο"
+CLIPBOARD_SUGGESTION = "Από το πρόχειρο: {url}"
+CLIPBOARD_SUGGESTION_TOOLTIP = "Χρήση του συνδέσμου από το πρόχειρο"
+PREVIEW_UP_TO = "έως {height}p"
+QUALITY_SEGMENT_NAME = "Ποιότητα"
+FORMAT_SEGMENT_NAME = "Μορφή"
+BITRATE_SEGMENT_NAME = "Bitrate MP3"
+QUEUE_ACTIVE_ONE = "1 ενεργή"
+QUEUE_ACTIVE_MANY = "{n} ενεργές"
+QUEUE_QUEUED = "{n} σε αναμονή"
+QUEUE_IDLE = "Καμία ενεργή λήψη"
+EMPTY_QUEUE_TITLE = "Η ουρά είναι άδεια"
+EMPTY_QUEUE_HINT = "Επικόλλησε έναν σύνδεσμο παραπάνω και πάτησε «Λήψη»."
+BTN_OPEN_FILE = "Άνοιγμα αρχείου"
+BTN_SHOW_IN_FOLDER = "Εμφάνιση στον φάκελο"
+BTN_CHANGE_FOLDER = "Αλλαγή φακέλου προορισμού"
+STATUS_COMPLETED_SIZE = "Ολοκληρώθηκε · {size}"
+FOOTER_VERSIONS = "yt-dlp {ytdlp} · FFmpeg {ffmpeg} · Deno {deno}"
+AUDIO_ONLY_THUMB = "Μόνο ήχος"
+BTN_MORE_ACTIONS = "Περισσότερες ενέργειες"
+MENU_TRASH_FILE = "Μεταφορά αρχείου στον Κάδο Ανακύκλωσης…"
+CONFIRM_TRASH_TITLE = "Διαγραφή αρχείου"
+CONFIRM_TRASH_TEXT = (
+    "Να μεταφερθεί το «{name}» στον Κάδο Ανακύκλωσης;\n\nΜπορείς να το επαναφέρεις από εκεί."
+)
+TRASH_FAILED = "Δεν ήταν δυνατή η μεταφορά στον Κάδο Ανακύκλωσης:\n{path}"

@@ -20,11 +20,25 @@ def _ensure_std_streams() -> None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
 
 
+def _check_ui_assets() -> tuple[bool, str]:
+    """Icons and the app icon must be bundled (PyInstaller --collect-data vidgrab)."""
+    import vidgrab
+
+    assets = Path(vidgrab.__file__).resolve().parent / "ui" / "assets"
+    icons = list((assets / "icons").glob("*.svg"))
+    if icons and (assets / "vidgrab.ico").is_file():
+        return True, f"OK       ui assets: {len(icons)} icons + vidgrab.ico"
+    return False, f"MISSING  ui assets in {assets}"
+
+
 def _self_check(report: Path | None) -> int:
     from vidgrab import __version__
     from vidgrab.core.binaries import self_check
 
     ok, lines = self_check()
+    assets_ok, line = _check_ui_assets()
+    ok = ok and assets_ok
+    lines.append(line)
     text = "\n".join([f"VidGrab {__version__} self-check", *lines, "PASS" if ok else "FAIL"])
     print(text)
     if report is not None:

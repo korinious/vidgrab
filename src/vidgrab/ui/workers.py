@@ -100,3 +100,47 @@ class DownloadWorker(QThread):
             self.failed.emit(self.job_id, classify(exc))
         else:
             self.completed.emit(self.job_id, result)
+
+
+def _tool_version(path, args: list[str], pattern: str) -> str | None:
+    """First regex group from ``path args`` output, or None. Never raises."""
+    import os
+    import re
+    import subprocess
+
+    if path is None:
+        return None
+    kwargs: dict = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # no console flash
+    try:
+        out = subprocess.run(
+            [str(path), *args], capture_output=True, text=True, timeout=10, check=False,
+            stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace", **kwargs,
+        ).stdout  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(pattern, out or "")
+    return match.group(1) if match else None
+
+
+class VersionsWorker(QThread):
+    """Reads the yt-dlp, FFmpeg and Deno versions for the footer, off the GUI thread."""
+
+    ready = Signal(object)  # dict[str, str | None]
+
+    def __init__(self, binaries: Binaries, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._binaries = binaries
+
+    def run(self) -> None:
+        from vidgrab.core.binaries import component_versions
+
+        versions = {
+            "yt-dlp": component_versions().get("yt-dlp"),
+            # "ffmpeg version 8.0-essentials_build-www.gyan.dev" -> "8.0"
+            "ffmpeg": _tool_version(self._binaries.ffmpeg, ["-version"], r"version\s+n?([\d.]+)"),
+            # "deno 2.9.6 (stable, release, ...)" -> "2.9.6"
+            "deno": _tool_version(self._binaries.deno, ["--version"], r"deno\s+([\d.]+)"),
+        }
+        self.ready.emit(versions)

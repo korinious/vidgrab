@@ -145,3 +145,77 @@ def lower_resolution_chip(job: DownloadJob) -> tuple[str, str] | None:
         else strings.TOOLTIP_LOWER_RESOLUTION_OTHER_SITE
     )
     return text, tooltip
+
+
+# --- modern UI texts --------------------------------------------------------------------
+
+_PLATFORMS = {
+    "youtube": "YouTube",
+    "twitter": "X",
+    "x": "X",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "generic": "",
+}
+
+
+def platform_name(extractor: str | None) -> str:
+    """'Youtube'/'youtube:tab' -> 'YouTube'; unknown extractors keep their own name."""
+    if not extractor:
+        return ""
+    key = extractor.split(":")[0].lower()
+    for prefix, name in _PLATFORMS.items():
+        if key.startswith(prefix):
+            return name
+    return extractor
+
+
+def preview_meta_text(info) -> str:  # VideoInfo
+    """'YouTube · Channel · έως 2160p' (parts that are unknown are left out)."""
+    parts = [platform_name(info.extractor), info.uploader or ""]
+    if info.max_height:
+        parts.append(strings.PREVIEW_UP_TO.format(height=info.max_height))
+    return " · ".join(p for p in parts if p)
+
+
+def queue_counter_text(jobs: list[DownloadJob]) -> str:
+    """e.g. '2 ενεργές, 1 σε αναμονή'."""
+    active = sum(1 for j in jobs if j.status.is_active)
+    queued = sum(1 for j in jobs if j.status is JobStatus.QUEUED)
+    parts = []
+    if active:
+        parts.append(
+            strings.QUEUE_ACTIVE_ONE if active == 1 else strings.QUEUE_ACTIVE_MANY.format(n=active)
+        )
+    if queued:
+        parts.append(strings.QUEUE_QUEUED.format(n=queued))
+    if not parts:
+        return strings.QUEUE_IDLE if jobs else ""
+    return ", ".join(parts)
+
+
+def job_chip_text(job: DownloadJob) -> str:
+    """'2160p · MP4' once the real resolution is known, else the requested choice."""
+    request = job.request
+    quality = Quality(request.quality)
+    result = job.result
+    if (
+        not quality.is_audio
+        and job.status is JobStatus.COMPLETED
+        and result is not None
+        and result.actual_height
+    ):
+        fmt = CONTAINER_LABELS[VideoContainer(request.container)]
+        return strings.JOB_FORMAT.format(quality=f"{result.actual_height}p", format=fmt)
+    return request_format_text(request)
+
+
+def completed_status_text(job: DownloadJob, size_bytes: int | None) -> str:
+    """'Ολοκληρώθηκε · 812.0 MB' plus the full-quality retry outcome, if any."""
+    text = strings.STATUS_COMPLETED_SIZE.format(size=format_bytes(size_bytes))
+    outcome = job.result.upgrade if job.result is not None else None
+    if outcome is UpgradeOutcome.NO_BETTER:
+        text = f"{text} · {strings.STATUS_NO_BETTER_QUALITY}"
+    elif outcome is UpgradeOutcome.UPGRADED and job.result is not None:
+        text = f"{text} · {strings.STATUS_UPGRADED.format(height=job.result.actual_height)}"
+    return text
