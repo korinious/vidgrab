@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 from vidgrab.core.binaries import Binaries
 from vidgrab.core.downloader import download
 from vidgrab.core.errors import UserError, classify
-from vidgrab.core.extractor import fetch_info
+from vidgrab.core.extractor import fetch_listing, probe
 from vidgrab.core.models import CookieConfig, DownloadRequest, Progress, UpgradeTarget
 from vidgrab.core.options import YdlFactory, default_ydl_factory
 
@@ -21,7 +21,10 @@ PROGRESS_INTERVAL_S = 0.1  # max ~10 UI updates per second per download
 
 
 class MetadataWorker(QThread):
-    succeeded = Signal(object)  # VideoInfo
+    """What a link points at: ``probe()`` (VideoInfo or Listing), or with ``listing=True``
+    the whole list ("Όλη η λίστα" on a video inside a list)."""
+
+    succeeded = Signal(object)  # VideoInfo | Listing
     failed = Signal(object)  # UserError
 
     def __init__(
@@ -31,16 +34,20 @@ class MetadataWorker(QThread):
         cookies: CookieConfig,
         ydl_factory: YdlFactory = default_ydl_factory,
         parent: QObject | None = None,
+        *,
+        listing: bool = False,
     ) -> None:
         super().__init__(parent)
         self.url = url
+        self.listing = listing
         self._binaries = binaries
         self._cookies = cookies
         self._ydl_factory = ydl_factory
 
     def run(self) -> None:
         try:
-            info = fetch_info(self.url, self._binaries, self._cookies, self._ydl_factory)
+            fetch = fetch_listing if self.listing else probe
+            info = fetch(self.url, self._binaries, self._cookies, self._ydl_factory)
         except Exception as exc:
             self.failed.emit(classify(exc))
         else:

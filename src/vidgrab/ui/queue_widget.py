@@ -18,13 +18,14 @@ from PySide6.QtWidgets import (
 )
 
 from vidgrab import strings
-from vidgrab.core.jobqueue import DownloadJob
+from vidgrab.core.jobqueue import DownloadJob, GroupProgress, JobGroup
 from vidgrab.core.models import JobStatus, Quality
 from vidgrab.ui.labels import (
     completed_status_text,
     job_chip_text,
     job_status_text,
     lower_resolution_chip,
+    platform_name,
 )
 from vidgrab.ui.theme import tabular
 from vidgrab.ui.widgets import (
@@ -211,3 +212,90 @@ class JobWidget(QFrame):
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         if any(action.isVisible() for action in self.menu.actions()):
             self.menu.exec(event.globalPos())
+
+
+class GroupHeader(QFrame):
+    """Header card of a list in the queue: title, "7/12" + slim bar, bulk actions."""
+
+    cancel_all_requested = Signal(int)  # group id
+    retry_failed_requested = Signal(int)
+    expanded_changed = Signal(int, bool)
+
+    def __init__(self, group: JobGroup, expanded: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setProperty("card", True)
+        self.setProperty("role", "group")
+        self.group_id = group.id
+        self._expanded = expanded
+
+        self.btn_toggle = IconButton("chevron-down", strings.BTN_COLLAPSE)
+        self.btn_toggle.clicked.connect(lambda: self.set_expanded(not self._expanded, emit=True))
+        self.title = ElidedLabel(group.title)
+        self.title.setProperty("role", "job-title")
+        self.platform = chip(platform_name(group.platform))
+        self.skipped = chip(strings.GROUP_SKIPPED.format(n=group.skipped), tone="success")
+        self.failed = chip(tone="error")
+
+        self.count = QLabel()
+        self.count.setProperty("tone", "muted")
+        self.count.setFont(tabular(self.count.font()))
+        self.progress = QProgressBar()
+        self.progress.setProperty("role", "slim")
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(3)
+        self.progress.setRange(0, 1000)
+
+        self.btn_retry_failed = text_button(strings.BTN_RETRY_FAILED, None, "rotate-ccw")
+        self.btn_retry_failed.clicked.connect(
+            lambda: self.retry_failed_requested.emit(self.group_id)
+        )
+        self.btn_cancel_all = text_button(strings.BTN_CANCEL_ALL, None, "x")
+        self.btn_cancel_all.clicked.connect(lambda: self.cancel_all_requested.emit(self.group_id))
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        top.addWidget(self.btn_toggle)
+        top.addWidget(self.title, 1)
+        top.addWidget(self.failed)
+        top.addWidget(self.skipped)
+        top.addWidget(self.platform)
+        top.addWidget(self.count)
+        top.addWidget(self.btn_retry_failed)
+        top.addWidget(self.btn_cancel_all)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(6, 6, 12, 10)
+        root.setSpacing(6)
+        root.addLayout(top)
+        bar = QHBoxLayout()
+        bar.setContentsMargins(50, 0, 0, 0)  # under the title, not the chevron
+        bar.addWidget(self.progress)
+        root.addLayout(bar)
+        # Visibility only once parented (a shown parentless widget becomes a window).
+        self.platform.setVisible(bool(platform_name(group.platform)))
+        self.skipped.setVisible(group.skipped > 0)
+        self.failed.hide()
+        self.set_expanded(expanded)
+
+    @property
+    def expanded(self) -> bool:
+        return self._expanded
+
+    def set_expanded(self, expanded: bool, emit: bool = False) -> None:
+        self._expanded = expanded
+        label_text = strings.BTN_COLLAPSE if expanded else strings.BTN_EXPAND
+        self.btn_toggle.set_icon_name("chevron-down" if expanded else "chevron-right")
+        self.btn_toggle.setToolTip(label_text)
+        self.btn_toggle.setAccessibleName(label_text)
+        if emit:
+            self.expanded_changed.emit(self.group_id, expanded)
+
+    def update_group(self, group: JobGroup, progress: GroupProgress) -> None:
+        self.title.setText(group.title)
+        self.count.setText(strings.GROUP_PROGRESS.format(done=progress.done, total=progress.total))
+        self.count.setAccessibleName(self.count.text())
+        self.progress.setValue(round(progress.fraction * 1000))
+        self.failed.setText(strings.GROUP_FAILED.format(n=progress.failed))
+        self.failed.setVisible(progress.failed > 0)
+        self.btn_retry_failed.setVisible(progress.failed > 0)
+        self.btn_cancel_all.setVisible(progress.active > 0)

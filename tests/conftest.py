@@ -79,6 +79,20 @@ class FakeYoutubeDL:
         if self.params.get("noplaylist") and sc.single_info is not None:
             info = dict(sc.single_info)
         is_list = info.get("_type") in ("playlist", "multi_video")
+        if is_list and self.params.get("noplaylist"):
+            # A list item's own URL (watch?v=...): yt-dlp returns just that video.
+            entry = next(
+                (e for e in info["entries"] if isinstance(e, dict) and e.get("url") == url), None
+            )
+            if entry is not None:
+                info = {
+                    "id": entry.get("id"),
+                    "title": entry.get("title"),
+                    "duration": entry.get("duration"),
+                    "extractor_key": entry.get("ie_key"),
+                    "webpage_url": url,
+                }
+                is_list = False
         if not download:
             if is_list and self.params.get("playlist_items"):
                 n = int(self.params["playlist_items"])
@@ -342,3 +356,37 @@ def x_post(n: int = 2) -> dict[str, Any]:
             for i in range(1, n + 1)
         ],
     }
+
+
+class _PerUrlYdl:
+    def __init__(self, params: dict[str, Any], factory: PerUrlYdlFactory) -> None:
+        self.params = params
+        self._factory = factory
+
+    def __enter__(self) -> _PerUrlYdl:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def extract_info(self, url: str, download: bool = True, **kw: Any) -> dict[str, Any]:
+        scenario = self._factory.scenarios.get(url, self._factory.scenario)
+        ydl = FakeYoutubeDL(self.params, scenario)
+        self._factory.calls.append((url, download, self.params))
+        return ydl.extract_info(url, download, **kw)
+
+
+class PerUrlYdlFactory:
+    """Like FakeYdlFactory, but each URL can have its own scenario (one video completes,
+    another gets a 403, a third stays downloading...). Unknown URLs use ``scenario``."""
+
+    def __init__(self) -> None:
+        self.scenario = FakeScenario()
+        self.scenarios: dict[str, FakeScenario] = {}
+        self.calls: list[tuple[str, bool, dict[str, Any]]] = []
+
+    def __call__(self, params: dict[str, Any]) -> _PerUrlYdl:
+        return _PerUrlYdl(params, self)
+
+    def downloads(self) -> list[str]:
+        return [url for url, download, _ in self.calls if download]
