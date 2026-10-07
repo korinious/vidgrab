@@ -127,3 +127,54 @@ def test_lower_resolution_chip():
     job = _completed("https://youtu.be/x", 2160, 1080)
     job.status = JobStatus.FAILED
     assert lower_resolution_chip(job) is None
+
+
+# --- modern UI texts --------------------------------------------------------------------
+
+
+def test_platform_name():
+    from vidgrab.ui.labels import platform_name
+
+    assert platform_name("Youtube") == "YouTube"
+    assert platform_name("youtube:tab") == "YouTube"
+    assert platform_name("Vimeo") == "Vimeo"
+    assert platform_name("generic") == ""
+    assert platform_name(None) == ""
+
+
+def test_queue_counter_text():
+    from vidgrab.ui.labels import queue_counter_text
+
+    def job(i, status):
+        return DownloadJob(i, DownloadRequest("https://x", Quality.BEST, Path("o")), status)
+
+    assert queue_counter_text([]) == ""
+    running = [job(1, JobStatus.DOWNLOADING), job(2, JobStatus.POSTPROCESSING)]
+    assert queue_counter_text([*running, job(3, JobStatus.QUEUED)]) == ("2 ενεργές, 1 σε αναμονή")
+    assert queue_counter_text([job(1, JobStatus.DOWNLOADING)]) == "1 ενεργή"
+    assert queue_counter_text([job(1, JobStatus.COMPLETED)]) == strings.QUEUE_IDLE
+
+
+def test_job_chip_text_shows_actual_height_when_done():
+    from vidgrab.core.models import DownloadResult
+    from vidgrab.ui.labels import job_chip_text
+
+    job = DownloadJob(1, DownloadRequest("https://x", Quality.BEST, Path("o")))
+    assert job_chip_text(job) == request_format_text(job.request)
+    job.status = JobStatus.COMPLETED
+    job.result = DownloadResult(Path("o/v.mp4"), requested_height=2160, actual_height=1080)
+    assert job_chip_text(job) == "1080p · MP4"
+
+
+def test_completed_status_text():
+    from vidgrab.core.models import DownloadResult, UpgradeOutcome
+    from vidgrab.ui.labels import completed_status_text
+
+    job = DownloadJob(1, DownloadRequest("https://x", Quality.BEST, Path("o")))
+    job.status = JobStatus.COMPLETED
+    job.result = DownloadResult(Path("o/v.mp4"), actual_height=1080)
+    assert completed_status_text(job, 1536) == "Ολοκληρώθηκε · 1.5 KB"
+    job.result = DownloadResult(
+        Path("o/v.mp4"), actual_height=1080, upgrade=UpgradeOutcome.NO_BETTER
+    )
+    assert strings.STATUS_NO_BETTER_QUALITY in completed_status_text(job, 1536)

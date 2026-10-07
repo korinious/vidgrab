@@ -3,9 +3,12 @@
 Windows desktop video downloader for YouTube, X, Facebook and Instagram, built on
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) and PySide6.
 
-![VidGrab main window](docs/screenshot.png)
+| Dark | Light |
+| --- | --- |
+| ![VidGrab, dark theme](docs/screenshot-dark.png) | ![VidGrab, light theme](docs/screenshot-light.png) |
 
-_Rendered headless (offscreen Qt) with fake data; thumbnails are blank there._
+_Rendered headless (offscreen Qt) with fake data and generated thumbnails. The theme
+follows Windows by default; Αυτόματο/Φωτεινό/Σκούρο is in the header and in the settings._
 
 ## Features
 

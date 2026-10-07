@@ -24,7 +24,8 @@ uv run ruff check .        # lint
 uv run ruff format .       # format
 uv run python -m vidgrab --self-check   # check ffmpeg/ffprobe/deno are found (no GUI)
 python scripts/check_paths.py          # every tracked path is valid on Windows
-uv run python scripts/screenshot.py docs/screenshot.png   # headless UI screenshot
+uv run python scripts/screenshot.py docs   # docs/screenshot-dark.png + -light.png
+uv run python scripts/make_icon.py         # regenerate ui/assets/vidgrab.ico from ui/logo.py
 ```
 
 Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit `uv.lock`.
@@ -73,6 +74,18 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
   Tests use the autouse `recycle_bin` fake and must never touch the real Recycle Bin.
 - No known error may reach the user as UNKNOWN. When a new failure shows up in a log, add
   its exact message to `tests/test_errors.py` (`test_reported_errors_are_never_unknown`).
+- Look and feel: `ui/theme.py` holds the design tokens (`DARK`/`LIGHT` palettes, radii, the
+  44px touch target) and generates the whole QSS on top of Fusion. Never hard-code colours or
+  `setStyleSheet` in widgets: set a dynamic property (`variant`, `role`, `tone`, via
+  `widgets.set_prop`) and style it in `build_qss`. Theme mode (Αυτόματο/Φωτεινό/Σκούρο) is a
+  UI-only preference in `ui.json` next to `settings.json` (`ui/prefs.py`), switched live by
+  `theme_manager().apply()`; widgets that paint icons listen to `ThemeManager.changed`.
+- Icons are Lucide SVGs (ISC, `LICENSES/lucide-ISC.txt`) in `ui/assets/icons/`, tinted by
+  `ui/icons.py` (`currentColor` -> theme colour). Add new ones from the same lucide-static
+  release. Icon-only buttons are `widgets.IconButton` (tooltip + accessible name required).
+  The app icon is drawn by `ui/logo.py`; regenerate the .ico with `scripts/make_icon.py`.
+- Quality/format pickers are `widgets.SegmentedControl`, which mimics the `QComboBox` API
+  (`currentData`, `findData`, `setCurrentIndex`, `currentIndexChanged`).
 - External binaries (ffmpeg, ffprobe, deno) are found only via `core/binaries.py`.
   Deno is passed to yt-dlp via `js_runtimes`. YouTube needs it for full format access.
 - Settings: JSON at `%APPDATA%\VidGrab\settings.json` (`core/settings.py`).

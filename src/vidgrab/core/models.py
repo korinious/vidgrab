@@ -79,10 +79,14 @@ class VideoInfo:
     thumbnail_url: str | None = None
     uploader: str | None = None
     extractor: str | None = None
+    max_height: int | None = None  # best video resolution offered, e.g. 2160
 
     @classmethod
     def from_info_dict(cls, url: str, info: dict[str, Any]) -> VideoInfo:
+        from vidgrab.core.formats import video_height  # local: formats imports models
+
         duration = info.get("duration")
+        heights = [h for h in map(video_height, info.get("formats") or [info]) if h]
         return cls(
             url=info.get("webpage_url") or url,
             id=str(info.get("id") or ""),
@@ -91,6 +95,7 @@ class VideoInfo:
             thumbnail_url=info.get("thumbnail") or _best_thumbnail(info.get("thumbnails")),
             uploader=info.get("uploader") or info.get("channel"),
             extractor=info.get("extractor_key") or info.get("extractor"),
+            max_height=max(heights, default=None),
         )
 
 

@@ -54,3 +54,15 @@ def test_job_status_groups():
     assert not JobStatus.QUEUED.is_active
     assert JobStatus.FAILED.is_finished
     assert not JobStatus.QUEUED.is_finished
+
+
+def test_video_info_max_height():
+    formats = [
+        {"format_id": "140", "vcodec": "none", "acodec": "mp4a"},
+        {"format_id": "137", "height": 1080, "vcodec": "avc1"},
+        {"format_id": "401", "height": 2160, "vcodec": "av01"},
+        {"format_id": "sb0", "height": 90, "ext": "mhtml", "vcodec": "none"},
+    ]
+    assert VideoInfo.from_info_dict("u", {"id": "x", "formats": formats}).max_height == 2160
+    assert VideoInfo.from_info_dict("u", {"id": "x", "height": 720}).max_height == 720
+    assert VideoInfo.from_info_dict("u", {"id": "x"}).max_height is None

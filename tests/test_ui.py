@@ -86,7 +86,8 @@ def test_warning_banner_when_deno_missing(qapp, tmp_path, fake_ydl):
 def test_fetch_metadata_shows_preview(qapp, window):
     fetch(qapp, window)
     assert window.preview_title.text() == "Test video"
-    assert "1:01" in window.preview_meta.text()
+    assert window.preview_thumb.duration() == "1:01"  # badge on the thumbnail
+    assert "YouTube" in window.preview_meta.text()
     assert window.btn_download.isEnabled()
     assert window.preview_error.text() == ""
 
@@ -460,7 +461,7 @@ def test_lower_resolution_chip_on_card(qapp, window, fake_ydl):
     assert not chip.isHidden()
     assert chip.text() == "1080p αντί 2160p"
     assert chip.toolTip() == strings.TOOLTIP_LOWER_RESOLUTION
-    assert "#ffe8b0" in chip.styleSheet()  # amber
+    assert chip.property("tone") == "warning"  # amber, from the theme's QSS
 
 
 def test_no_chip_when_resolution_is_as_requested(qapp, window, fake_ydl):

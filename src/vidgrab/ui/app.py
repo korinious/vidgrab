@@ -6,6 +6,8 @@ import logging
 import sys
 from types import TracebackType
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
 from vidgrab import APP_NAME, __version__
@@ -13,6 +15,7 @@ from vidgrab.core.binaries import find_binaries, log_component_versions
 from vidgrab.core.logging_setup import setup_logging
 from vidgrab.core.settings import default_settings_path, load_settings
 from vidgrab.core.staging import cleanup_orphans
+from vidgrab.ui.icons import APP_ICON
 from vidgrab.ui.main_window import MainWindow
 
 log = logging.getLogger(__name__)
@@ -33,9 +36,14 @@ def run_gui(argv: list[str] | None = None) -> int:
     except OSError:
         log.exception("Could not clean up old staging folders")
 
+    # Exact 125 %/150 % scaling instead of rounding to 100 %/200 %.
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
+    app.setWindowIcon(QIcon(str(APP_ICON)))
 
     settings_path = default_settings_path()
     window = MainWindow(
