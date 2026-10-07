@@ -24,7 +24,7 @@ uv run ruff check .        # lint
 uv run ruff format .       # format
 uv run python -m vidgrab --self-check   # check ffmpeg/ffprobe/deno are found (no GUI)
 python scripts/check_paths.py          # every tracked path is valid on Windows
-uv run python scripts/screenshot.py docs   # docs/screenshot-dark.png + -light.png
+uv run python scripts/screenshot.py docs   # docs/screenshot-*.png (main, list, queue group)
 uv run python scripts/make_icon.py         # regenerate ui/assets/vidgrab.ico from ui/logo.py
 ```
 
@@ -93,6 +93,26 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
   The app icon is drawn by `ui/logo.py`; regenerate the .ico with `scripts/make_icon.py`.
 - Quality/format pickers are `widgets.SegmentedControl`, which mimics the `QComboBox` API
   (`currentData`, `findData`, `setCurrentIndex`, `currentIndexChanged`).
+- Lists (playlists, carousels, multi-video posts): `core/extractor.probe()` returns a
+  `VideoInfo` or a `Listing` from a flat extraction (`extract_flat="in_playlist"`; never a
+  full extract per item before the user chooses). `noplaylist` is set per call, never
+  globally. Items without their own URL download with `playlist_items`
+  (`DownloadRequest.playlist_item`). A list with one video shows the normal preview.
+- List UI: `ui/selection.py` replaces the preview card. The selection lives in the view's
+  model, not in the cards (cards are built in batches over 100 items). Each chosen video
+  is its own job under a `JobGroup` (`DownloadQueue.add_group`, `cancel_group`,
+  `retry_failed`). Starts from the same platform are 2-5 s apart (`Cooldown`; tests zero
+  it with the autouse `no_cooldown` fixture).
+- File names: `core/filenames.py` holds the Windows rules used by `sanitize_filename()`
+  and by `scripts/check_paths.py` (keep it standard-library only). List items are named
+  "01 - Title" (no "[id]"); single videos keep yt-dlp's "Title [id]".
+- Download history (`core/archive.py`, yt-dlp archive format, `%LOCALAPPDATA%\VidGrab\
+  download-archive.txt`): written by the core only after the final move. It is used only
+  to pre-unselect list items ("Υπάρχει ήδη"); single URLs, "Επανάληψη" and "Ξανά σε
+  πλήρη ποιότητα" always download. Tests redirect it with the autouse `download_archive`
+  fixture (`VIDGRAB_ARCHIVE`).
+- Never `setVisible(True)` a widget before it has a parent (in a layout): Qt shows it as a
+  separate top-level window. `test_no_stray_top_level_windows` guards this.
 - External binaries (ffmpeg, ffprobe, deno) are found only via `core/binaries.py`.
   Deno is passed to yt-dlp via `js_runtimes`. YouTube needs it for full format access.
 - Settings: JSON at `%APPDATA%\VidGrab\settings.json` (`core/settings.py`).
@@ -126,11 +146,13 @@ releases are created in the GitHub UI:
 1. In a PR: bump the version in both `src/vidgrab/__init__.py` and `pyproject.toml`, and add
    `docs/release-notes/vX.Y.Z.md` (Greek: features and known issues). `test_version.py`
    fails if the notes for the current version are missing. Merge to `main`.
-2. GitHub → Releases → **Create new release** → new tag `vX.Y.Z` on `main`. Use the title
-   `VidGrab vX.Y.Z` and paste the notes file into the body. Publish.
+2. GitHub → Releases → **Create new release** → new tag `vX.Y.Z` on `main`, title
+   `VidGrab vX.Y.Z`, and **leave the description empty** (pasting loses the Markdown list
+   markers). Publish.
 3. The tag starts `build.yml`. It fails early if the tag doesn't match `__version__` or
    the notes file is missing. Then it builds, self-checks, and the `release` job attaches
-   `VidGrab-X.Y.Z-win64.zip` with `gh release upload`. **It never changes the title or
-   body of an existing release.** If no release exists (e.g. a tag pushed from a local
-   machine), it creates one from the notes file.
+   `VidGrab-X.Y.Z-win64.zip` with `gh release upload`. If the release body is empty it
+   fills it from `docs/release-notes/vX.Y.Z.md` (`gh release edit --notes-file`); a body
+   that already has text and the title are never changed. If no release exists (e.g. a
+   tag pushed from a local machine), it creates one from the notes file.
 4. Check that the run is green and the zip is under the release's Assets.
