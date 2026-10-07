@@ -384,7 +384,7 @@ def test_skipped_count_on_group_header(qapp, window, fake_ydl):
     assert group.skipped == 1
     header = window.group_header(group.id)
     assert not header.skipped.isHidden()
-    assert header.skipped.text() == "1 υπάρχουν ήδη"
+    assert header.skipped.text() == "1 υπάρχει ήδη"
 
 
 def test_skip_option_off_selects_downloaded_items(qapp, window, fake_ydl, tmp_path):
@@ -506,7 +506,7 @@ def test_cancel_all_and_retry_failed(qapp, make_window):
     header = win.group_header(group.id)
     wait_until(qapp, lambda: one.status is JobStatus.FAILED and two.progress is not None)
     assert three.status is JobStatus.QUEUED
-    assert not header.failed.isHidden() and header.failed.text() == "1 απέτυχαν"
+    assert not header.failed.isHidden() and header.failed.text() == "1 απέτυχε"
     assert not header.btn_retry_failed.isHidden()
 
     header.btn_cancel_all.click()
@@ -603,3 +603,14 @@ def test_no_stray_top_level_windows(qapp, window, fake_ydl):
     visible = [w for w in QtWidgets.QApplication.topLevelWidgets() if w.isVisible()]
     assert visible == [window]
     assert window.isActiveWindow()
+
+
+def test_empty_queue_makes_room_for_the_grid(qapp, window, fake_ydl):
+    view = open_playlist(qapp, window, fake_ydl, 3)
+    assert window.queue_stack.isHidden()
+    view.btn_back.click()
+    assert not window.queue_stack.isHidden()
+    open_link(qapp, window)
+    window.selection_view.btn_download.click()  # queue no longer empty, back in preview
+    open_link(qapp, window)
+    assert not window.queue_stack.isHidden()

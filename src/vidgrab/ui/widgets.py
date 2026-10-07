@@ -511,7 +511,8 @@ def elide_lines(text: str, font: QFont, width: int, lines: int = 2) -> str:
         spans.append((line.textStart(), line.textLength()))
     layout.endLayout()
     if len(spans) <= lines:
-        return text
+        # Explicit breaks: the label itself does not wrap.
+        return "\n".join(text[start : start + length].rstrip() for start, length in spans)
     head = [text[start : start + length].rstrip() for start, length in spans[: lines - 1]]
     rest = text[spans[lines - 1][0] :]
     tail = QFontMetrics(font).elidedText(rest, Qt.TextElideMode.ElideRight, width)

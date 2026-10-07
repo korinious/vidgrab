@@ -76,7 +76,8 @@ GROUP_COLLAPSE_OVER = 5  # list groups with more videos start collapsed in the q
 GROUP_INDENT = 28  # px: a list's jobs sit indented under its header card
 SCOPE_VIDEO, SCOPE_LIST = "video", "list"
 QUEUE_MIN_HEIGHT = 180
-QUEUE_MIN_HEIGHT_WHILE_SELECTING = 150
+QUEUE_MIN_HEIGHT_WHILE_SELECTING = 150  # also its maximum: the grid gets the height
+QWIDGETSIZE_MAX = (1 << 24) - 1
 
 # Fetch errors about the link itself; shown under the URL field, which turns red.
 URL_ERROR_KINDS = frozenset(
@@ -131,6 +132,7 @@ class MainWindow(QMainWindow):
         self._group_items: dict[int, tuple[QListWidgetItem, GroupHeader]] = {}
         self._group_children: dict[int, list[int]] = {}
         self._next_group_expanded = True
+        self._selecting = False  # the list selection screen is shown
 
         self.theme = theme_manager()
         self.theme.apply(self.prefs.theme)
@@ -143,7 +145,7 @@ class MainWindow(QMainWindow):
         self.controller.group_removed.connect(self._on_group_removed)
 
         self.setWindowTitle(strings.WINDOW_TITLE)
-        self.resize(1100, 820)
+        self.resize(1100, 900)
         self.setMinimumSize(640, 560)
         self._build_ui()
         self._show_binary_warnings()
@@ -552,6 +554,9 @@ class MainWindow(QMainWindow):
         self._column.setStretchFactor(self.selection_view, 1)
         self._column.setStretchFactor(self.queue_stack, 0)
         self.queue_stack.setMinimumHeight(QUEUE_MIN_HEIGHT_WHILE_SELECTING)
+        self.queue_stack.setMaximumHeight(QUEUE_MIN_HEIGHT_WHILE_SELECTING)
+        self._selecting = True
+        self._update_queue_view()
         first = next((c for c in self.selection_view.cards if c.entry.available), None)
         if first is not None:
             first.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -564,6 +569,9 @@ class MainWindow(QMainWindow):
         self._column.setStretchFactor(self.selection_view, 0)
         self._column.setStretchFactor(self.queue_stack, 1)
         self.queue_stack.setMinimumHeight(QUEUE_MIN_HEIGHT)
+        self.queue_stack.setMaximumHeight(QWIDGETSIZE_MAX)
+        self._selecting = False
+        self._update_queue_view()
         self.preview_card.show()
         info = self._current_info
         if info is not None:
@@ -799,6 +807,8 @@ class MainWindow(QMainWindow):
         jobs = self.controller.queue.jobs
         self.queue_counter.setText(queue_counter_text(jobs))
         self.queue_stack.setCurrentWidget(self.queue_list if jobs else self.empty_state)
+        # While choosing from a list, an empty queue gives its height to the grid.
+        self.queue_stack.setVisible(bool(jobs) or not self._selecting)
         self.btn_clear.setEnabled(any(j.status.is_finished for j in jobs))
 
     def _open_job(self, job_id: int) -> None:

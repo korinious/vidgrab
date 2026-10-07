@@ -214,6 +214,10 @@ class JobWidget(QFrame):
             self.menu.exec(event.globalPos())
 
 
+def plural(n: int, one: str, many: str) -> str:
+    return one if n == 1 else many.format(n=n)
+
+
 class GroupHeader(QFrame):
     """Header card of a list in the queue: title, "7/12" + slim bar, bulk actions."""
 
@@ -233,7 +237,10 @@ class GroupHeader(QFrame):
         self.title = ElidedLabel(group.title)
         self.title.setProperty("role", "job-title")
         self.platform = chip(platform_name(group.platform))
-        self.skipped = chip(strings.GROUP_SKIPPED.format(n=group.skipped), tone="success")
+        self.skipped = chip(
+            plural(group.skipped, strings.GROUP_SKIPPED_ONE, strings.GROUP_SKIPPED_MANY),
+            tone="success",
+        )
         self.failed = chip(tone="error")
 
         self.count = QLabel()
@@ -295,7 +302,9 @@ class GroupHeader(QFrame):
         self.count.setText(strings.GROUP_PROGRESS.format(done=progress.done, total=progress.total))
         self.count.setAccessibleName(self.count.text())
         self.progress.setValue(round(progress.fraction * 1000))
-        self.failed.setText(strings.GROUP_FAILED.format(n=progress.failed))
+        self.failed.setText(
+            plural(progress.failed, strings.GROUP_FAILED_ONE, strings.GROUP_FAILED_MANY)
+        )
         self.failed.setVisible(progress.failed > 0)
         self.btn_retry_failed.setVisible(progress.failed > 0)
         self.btn_cancel_all.setVisible(progress.active > 0)

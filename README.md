@@ -6,6 +6,8 @@ Windows desktop video downloader for YouTube, X, Facebook and Instagram, built o
 | Dark | Light |
 | --- | --- |
 | ![VidGrab, dark theme](docs/screenshot-dark.png) | ![VidGrab, light theme](docs/screenshot-light.png) |
+| ![Choosing videos from a playlist](docs/screenshot-playlist-dark.png) | ![Choosing videos from a playlist, light](docs/screenshot-playlist-light.png) |
+| ![A playlist in the queue](docs/screenshot-queue-group-dark.png) | ![A playlist in the queue, light](docs/screenshot-queue-group-light.png) |
 
 _Rendered headless (offscreen Qt) with fake data and generated thumbnails. The theme
 follows Windows by default; Αυτόματο/Φωτεινό/Σκούρο is in the header and in the settings._
@@ -13,6 +15,10 @@ follows Windows by default; Αυτόματο/Φωτεινό/Σκούρο is in t
 ## Features
 
 - Paste a URL to see title, thumbnail and duration
+- Playlists and multi-video posts (YouTube playlists, Instagram carousels, X posts, Facebook
+  where yt-dlp supports it): pick the videos in a grid, rename them, optional subfolder and
+  "01 - title" numbering; each video is its own job under one list card in the queue
+  (cancel all, retry failed). Videos you already downloaded start unselected ("Υπάρχει ήδη").
 - Quality: Best / 1080p / 720p / Audio only
 - Format, chosen next to the quality:
   - video: **MP4** (default; resolution first, then mp4/m4a preferred; if the audio still isn't
