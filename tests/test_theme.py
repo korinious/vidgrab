@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -49,6 +50,19 @@ def window(qapp, tmp_path, fake_ydl, binaries):
 
 
 # --- tokens and QSS -----------------------------------------------------------------------
+
+
+def test_url_field_focus_is_neutral_and_red_only_when_invalid():
+    for palette, neutral in ((DARK, "#52525B"), (LIGHT, "#A1A1AA")):
+        qss = build_qss(palette)
+        focused = re.search(r'QFrame#UrlField\[focused="true"\] \{ border: 2px solid (\S+);', qss)
+        invalid = re.search(r'QFrame#UrlField\[invalid="true"\] \{ border: 2px solid (\S+);', qss)
+        assert focused.group(1) == neutral
+        assert invalid.group(1) == palette.error_fg
+        assert qss.index('UrlField[invalid="true"]') > qss.index('UrlField[focused="true"]')
+        # Buttons keep the red keyboard focus ring.
+        assert f"QToolButton:focus {{ border: 2px solid {palette.focus}; }}" in qss
+        assert palette.focus in ("#F87171", "#B91C1C")
 
 
 def test_dark_and_light_tokens():
@@ -136,7 +150,8 @@ def test_every_icon_used_in_code_exists():
 
     used = set(THEME_ICONS.values()) | {name for name, _ in _STATUS_STYLE.values()}
     used |= {"link", "search", "clipboard-paste", "settings", "download", "folder"}
-    used |= {"folder-open", "external-link", "x", "rotate-ccw", "trash-2", "info", "music"}
+    used |= {"folder-open", "external-link", "x", "rotate-ccw", "list-x", "info", "music"}
+    used |= {"ellipsis"}
     used |= {"refresh-cw", "inbox", "file-text", "circle-alert", "triangle-alert"}
     assert used <= set(available_icons())
 
@@ -164,7 +179,7 @@ def test_icon_buttons_are_accessible_touch_targets(qapp, window):
         assert button.accessibleName(), button
         assert button.toolTip(), button
         size = button.size()
-        assert size.width() >= 40 and size.height() >= 40, (button.toolTip(), size)
+        assert size.width() >= 44 and size.height() >= 44, (button.toolTip(), size)
     for button in (window.btn_theme, window.btn_settings, window.btn_open_dest):
         assert button.width() >= 44 and button.height() >= 44
     for widget in window.findChildren(QtWidgets.QAbstractButton):

@@ -80,6 +80,13 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
   `widgets.set_prop`) and style it in `build_qss`. Theme mode (Αυτόματο/Φωτεινό/Σκούρο) is a
   UI-only preference in `ui.json` next to `settings.json` (`ui/prefs.py`), switched live by
   `theme_manager().apply()`; widgets that paint icons listen to `ThemeManager.changed`.
+- Focus and error colours: text fields get the neutral `field_focus` border when focused; a
+  red border (`error_fg`, `invalid` property) means only an invalid or unsupported link and
+  always comes with a message under the field. The red `focus` ring is for buttons and other
+  keyboard targets.
+- Queue cards: "X" only removes the card from the list. Deleting the file goes through the
+  "⋯"/right-click menu, asks for confirmation, and uses `core/trash.py` (Recycle Bin), never a
+  permanent delete.
 - Icons are Lucide SVGs (ISC, `LICENSES/lucide-ISC.txt`) in `ui/assets/icons/`, tinted by
   `ui/icons.py` (`currentColor` -> theme colour). Add new ones from the same lucide-static
   release. Icon-only buttons are `widgets.IconButton` (tooltip + accessible name required).

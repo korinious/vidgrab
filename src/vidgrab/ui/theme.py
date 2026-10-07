@@ -41,7 +41,8 @@ class Palette:
     segment_selected: str
     secondary_btn: str
     hover: str
-    link: str  # links and focus ring
+    link: str  # links and the keyboard focus ring on buttons
+    field_focus: str  # border of a focused text field (neutral: red reads as an error)
     warning_fg: str
     warning_bg: str
     success_fg: str
@@ -78,6 +79,7 @@ DARK = Palette(
     secondary_btn="#1F1F22",
     hover="#26262A",
     link="#F87171",
+    field_focus="#52525B",
     warning_fg="#FCD34D",
     warning_bg="rgba(245, 158, 11, 0.14)",
     success_fg="#86EFAC",
@@ -102,6 +104,7 @@ LIGHT = Palette(
     secondary_btn="#F4F4F5",
     hover="#EBEBED",
     link="#B91C1C",
+    field_focus="#A1A1AA",
     warning_fg="#92400E",
     warning_bg="#FEF3C7",
     success_fg="#15803D",
@@ -188,7 +191,8 @@ QFrame[role="empty"] QLabel {{ color: {p.muted}; }}
 QFrame#UrlField {{
     background: {p.surface}; border: 1px solid {p.border}; border-radius: {RADIUS_FIELD}px;
 }}
-QFrame#UrlField[focused="true"] {{ border: 2px solid {p.focus}; }}
+QFrame#UrlField[focused="true"] {{ border: 2px solid {p.field_focus}; }}
+QFrame#UrlField[invalid="true"] {{ border: 2px solid {p.error_fg}; }}
 QLineEdit#UrlEdit {{
     background: transparent; border: none; font-size: 14px; padding: 0;
     selection-background-color: {p.accent}; selection-color: {p.on_accent};
@@ -198,7 +202,7 @@ QLineEdit, QComboBox, QSpinBox {{
     padding: 6px 10px; min-height: 24px;
     selection-background-color: {p.accent}; selection-color: {p.on_accent};
 }}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border: 2px solid {p.focus}; }}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border: 2px solid {p.field_focus}; }}
 QComboBox::drop-down {{ border: none; width: 24px; }}
 QComboBox QAbstractItemView {{
     background: {p.surface}; color: {p.text}; border: 1px solid {p.border};

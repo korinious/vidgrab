@@ -29,12 +29,13 @@ from PySide6.QtWidgets import (
 
 from vidgrab import __version__, strings
 from vidgrab.core.binaries import Binaries
-from vidgrab.core.errors import UserError
+from vidgrab.core.errors import ErrorKind, UserError
 from vidgrab.core.jobqueue import DownloadJob
 from vidgrab.core.models import (
     MP3_BITRATES,
     AudioFormat,
     DownloadRequest,
+    JobStatus,
     Quality,
     VideoContainer,
     VideoInfo,
@@ -42,6 +43,7 @@ from vidgrab.core.models import (
 )
 from vidgrab.core.options import YdlFactory, default_ydl_factory
 from vidgrab.core.settings import Settings, save_settings
+from vidgrab.core.trash import move_to_trash
 from vidgrab.ui.controller import DownloadController
 from vidgrab.ui.dialogs import SettingsDialog
 from vidgrab.ui.labels import (
@@ -78,6 +80,11 @@ from vidgrab.ui.workers import MetadataWorker, VersionsWorker
 log = logging.getLogger(__name__)
 
 PREVIEW_THUMB = (240, 135)  # 16:9
+
+# Fetch errors about the link itself; shown under the URL field, which turns red.
+URL_ERROR_KINDS = frozenset(
+    {ErrorKind.INVALID_URL, ErrorKind.UNSUPPORTED_URL, ErrorKind.PLAYLIST_NOT_SUPPORTED}
+)
 
 THEME_LABELS = {
     ThemeMode.AUTO: strings.THEME_AUTO,
@@ -243,17 +250,17 @@ class MainWindow(QMainWindow):
         self.url_edit.setAccessibleName(strings.URL_FIELD_NAME)
         self.url_edit.returnPressed.connect(self.fetch_metadata)
         self.url_edit.textChanged.connect(lambda *_: self._sync_clipboard_hint())
+        self.url_edit.textEdited.connect(lambda *_: self._set_url_error(None))
         self.url_edit.installEventFilter(self)
 
         # Analyse without downloading (Enter does the same); disabled while fetching.
         self.btn_fetch = IconButton("search", strings.BTN_FETCH_TOOLTIP, "muted")
-        self.btn_fetch.setMinimumSize(40, 40)
         self.btn_fetch.clicked.connect(self.fetch_metadata)
         self.btn_paste = text_button(strings.BTN_PASTE, "inline", "clipboard-paste", "text")
         self.btn_paste.clicked.connect(self._paste_and_fetch)
 
         field = QHBoxLayout(self.url_field)
-        field.setContentsMargins(14, 4, 8, 4)
+        field.setContentsMargins(14, 4, 4, 4)  # 4 + 44px buttons + 4 = 52
         field.setSpacing(8)
         field.addWidget(IconLabel("link", "muted", 18))
         field.addWidget(self.url_edit, 1)
@@ -277,9 +284,13 @@ class MainWindow(QMainWindow):
         self.clipboard_hint.hide()
         self._clipboard_suggestion: str | None = None
 
+        # Red border + message only for a link that is invalid or not supported.
+        self.url_error = ErrorRow()
+
         box = QVBoxLayout()
         box.setSpacing(6)
         box.addLayout(row)
+        box.addWidget(self.url_error)
         box.addWidget(self.clipboard_hint, 0, Qt.AlignmentFlag.AlignLeft)
         return box
 
@@ -371,7 +382,7 @@ class MainWindow(QMainWindow):
     def _build_queue_header(self) -> QHBoxLayout:
         title = label(strings.LABEL_QUEUE.rstrip(":"), role="h2")
         self.queue_counter = label(tone="muted")
-        self.btn_clear = text_button(strings.BTN_CLEAR_FINISHED, None, "trash-2", "muted")
+        self.btn_clear = text_button(strings.BTN_CLEAR_FINISHED, None, "list-x", "muted")
         self.btn_clear.clicked.connect(self.controller.clear_finished)
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -518,6 +529,7 @@ class MainWindow(QMainWindow):
         self.btn_download.setEnabled(False)
         self.btn_fetch.setEnabled(False)
         self.preview_error.clear()
+        self._set_url_error(None)
         self.preview_meta.clear()
         self.preview_thumb.clear()
         self.preview_title.setText(strings.LABEL_FETCHING)
@@ -553,8 +565,21 @@ class MainWindow(QMainWindow):
             return
         self.btn_fetch.setEnabled(True)
         self.preview_title.setText(strings.LABEL_NO_PREVIEW)
-        self.preview_error.setText(error.message)
-        self.preview_error.setToolTip(error.detail)
+        if error.kind in URL_ERROR_KINDS:
+            self._set_url_error(error)  # a problem with the link itself: show it at the field
+        else:
+            self.preview_error.setText(error.message)
+            self.preview_error.setToolTip(error.detail)
+
+    def _set_url_error(self, error: UserError | None) -> None:
+        set_prop(self.url_field, "invalid", error is not None)
+        if error is None:
+            self.url_error.clear()
+            self.url_edit.setAccessibleDescription("")
+        else:
+            self.url_error.setText(error.message)
+            self.url_error.setToolTip(error.detail)
+            self.url_edit.setAccessibleDescription(error.message)
 
     # --- queue -------------------------------------------------------------------------
     def enqueue_current(self) -> DownloadJob | None:
@@ -578,6 +603,7 @@ class MainWindow(QMainWindow):
         widget.cancel_requested.connect(self.controller.cancel)
         widget.retry_requested.connect(self.controller.retry)
         widget.remove_requested.connect(self.controller.remove)
+        widget.trash_file_requested.connect(self.trash_job_file)
         widget.upgrade_requested.connect(self.controller.retry_full_quality)
         widget.open_requested.connect(self._open_job)
         widget.open_file_requested.connect(self._open_job_file)
@@ -644,6 +670,38 @@ class MainWindow(QMainWindow):
                 strings.DIALOG_ERROR_TITLE,
                 strings.OPEN_FILE_FAILED.format(path=job.output_path),
             )
+
+    def trash_job_file(self, job_id: int) -> None:
+        """After confirmation, move a finished file to the Recycle Bin (never a permanent
+        delete) and drop its card."""
+        job = self.controller.queue.get(job_id)
+        path = job.output_path
+        if path is None or job.status is not JobStatus.COMPLETED:
+            return
+        if not path.exists():
+            self.controller.remove(job_id)  # already gone (moved or deleted elsewhere)
+            return
+        if not self._confirm_trash(path):
+            return
+        try:
+            move_to_trash(path)
+        except OSError:
+            log.exception("Could not move %s to the Recycle Bin", path)
+            QMessageBox.warning(
+                self, strings.DIALOG_ERROR_TITLE, strings.TRASH_FAILED.format(path=path)
+            )
+            return
+        self.controller.remove(job_id)
+
+    def _confirm_trash(self, path: Path) -> bool:
+        answer = QMessageBox.question(
+            self,
+            strings.CONFIRM_TRASH_TITLE,
+            strings.CONFIRM_TRASH_TEXT.format(name=path.name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return answer == QMessageBox.StandardButton.Yes
 
     def _show_job_details(self, job_id: int) -> None:
         job = self.controller.queue.get(job_id)

@@ -9,6 +9,7 @@ from dataclasses import replace
 import pytest
 
 QtWidgets = pytest.importorskip("PySide6.QtWidgets", reason="Qt not loadable here")
+QtTest = pytest.importorskip("PySide6.QtTest")
 
 from vidgrab import strings  # noqa: E402
 from vidgrab.core.binaries import Binaries  # noqa: E402
@@ -103,8 +104,35 @@ def test_fetch_error_is_shown(qapp, window, fake_ydl):
 
 def test_invalid_url(qapp, window, fake_ydl):
     fetch(qapp, window, "hello there")
-    assert window.preview_error.text() == strings.ERR_INVALID_URL
+    # Shown at the field (red border + message below it), not in the preview card.
+    assert window.url_error.text() == strings.ERR_INVALID_URL
+    assert not window.url_error.isHidden()
+    assert window.url_field.property("invalid") is True
+    assert window.preview_error.text() == ""
     assert fake_ydl.instances == []
+    # Typing clears the error state.
+    QtTest.QTest.keyClicks(window.url_edit, "x")
+    assert window.url_field.property("invalid") is False
+    assert window.url_error.isHidden()
+
+
+def test_unsupported_url_marks_the_field(qapp, window, fake_ydl):
+    from yt_dlp.utils import DownloadError
+
+    fake_ydl.scenario.error = DownloadError("ERROR: Unsupported URL: https://example.com/x")
+    fetch(qapp, window, "https://example.com/x")
+    assert window.url_error.text() == strings.ERR_UNSUPPORTED_URL
+    assert window.url_field.property("invalid") is True
+    assert window.preview_error.text() == ""
+
+
+def test_other_fetch_errors_leave_the_field_neutral(qapp, window, fake_ydl):
+    from yt_dlp.utils import DownloadError
+
+    fake_ydl.scenario.error = DownloadError("ERROR: [youtube] abc123: Video unavailable")
+    fetch(qapp, window)
+    assert window.url_field.property("invalid") is not True
+    assert window.url_error.isHidden()
 
 
 def test_download_completes(qapp, window, fake_ydl, tmp_path):
@@ -536,3 +564,74 @@ def test_no_upgrade_button_at_full_quality(qapp, window, fake_ydl):
     job = window.enqueue_current()
     wait_until(qapp, lambda: job.status is JobStatus.COMPLETED)
     assert window._job_items[job.id][1].btn_upgrade.isHidden()
+
+
+def _completed_job(qapp, window, fake_ydl, name="Kept.mp4"):
+    fetch(qapp, window)
+    fake_ydl.scenario.final_name = name
+    job = window.enqueue_current()
+    wait_until(qapp, lambda: job.status is JobStatus.COMPLETED)
+    return job, window._job_items[job.id][1]
+
+
+def test_x_removes_card_but_keeps_file(qapp, window, fake_ydl, recycle_bin):
+    job, widget = _completed_job(qapp, window, fake_ydl)
+    assert widget.btn_remove.toolTip() == "Αφαίρεση από τη λίστα"
+    assert widget.btn_remove.property("_icon") == "x"
+    widget.btn_remove.click()
+    qapp.processEvents()
+    assert job.id not in window._job_items
+    assert job.output_path.is_file()  # only the list entry is gone
+    assert recycle_bin == []
+
+
+def test_more_menu_trashes_file_after_confirmation(qapp, window, fake_ydl, recycle_bin):
+    job, widget = _completed_job(qapp, window, fake_ydl)
+    path = job.output_path
+    assert not widget.btn_more.isHidden()
+    assert widget.action_trash.isVisible()
+
+    asked = []
+    window._confirm_trash = lambda p: asked.append(p) or False  # user cancels
+    widget.action_trash.trigger()
+    assert asked == [path]
+    assert path.is_file() and recycle_bin == []
+    assert job.id in window._job_items
+
+    window._confirm_trash = lambda p: True
+    widget.action_trash.trigger()
+    qapp.processEvents()
+    assert recycle_bin == [(path, b"done")]  # Recycle Bin, never a permanent delete
+    assert not path.exists()
+    assert job.id not in window._job_items
+
+
+def test_trash_failure_keeps_card(qapp, window, fake_ydl, monkeypatch):
+    from vidgrab.ui import main_window
+
+    job, widget = _completed_job(qapp, window, fake_ydl)
+
+    def refuse(path):
+        raise OSError("no recycle bin")
+
+    warned = []
+    monkeypatch.setattr(main_window, "move_to_trash", refuse)
+    monkeypatch.setattr(main_window.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    window._confirm_trash = lambda p: True
+    widget.action_trash.trigger()
+    assert job.output_path.is_file()
+    assert job.id in window._job_items
+    assert warned and str(job.output_path) in warned[0]
+
+
+def test_no_file_actions_for_failed_jobs(qapp, window, fake_ydl):
+    from yt_dlp.utils import DownloadError
+
+    fetch(qapp, window)
+    fake_ydl.scenario.error = DownloadError("ERROR: [youtube] abc123: Video unavailable")
+    job = window.enqueue_current()
+    wait_until(qapp, lambda: job.status is JobStatus.FAILED)
+    widget = window._job_items[job.id][1]
+    assert widget.btn_more.isHidden()
+    assert not widget.action_trash.isVisible()
+    assert not widget.btn_remove.isHidden()

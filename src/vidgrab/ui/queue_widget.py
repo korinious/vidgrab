@@ -5,8 +5,17 @@ from __future__ import annotations
 import contextlib
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
+from PySide6.QtGui import QContextMenuEvent, QPixmap
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QProgressBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from vidgrab import strings
 from vidgrab.core.jobqueue import DownloadJob
@@ -50,6 +59,7 @@ class JobWidget(QFrame):
     open_file_requested = Signal(int)
     details_requested = Signal(int)
     upgrade_requested = Signal(int)
+    trash_file_requested = Signal(int)  # move the finished file to the Recycle Bin
 
     def __init__(self, job: DownloadJob, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -90,7 +100,16 @@ class JobWidget(QFrame):
         self.btn_open = IconButton("external-link", strings.BTN_OPEN_FILE)
         self.btn_show = IconButton("folder-open", strings.BTN_SHOW_IN_FOLDER)
         self.btn_cancel = IconButton("x", strings.BTN_CANCEL)
-        self.btn_remove = IconButton("trash-2", strings.BTN_REMOVE, "muted")
+        self.btn_remove = IconButton("x", strings.BTN_REMOVE, "muted")  # list only, not the file
+        # File actions that need a confirmation live in a menu ("⋯" and right click).
+        self.menu = QMenu(self)
+        self.action_remove = self.menu.addAction(strings.BTN_REMOVE)
+        self.action_remove.triggered.connect(emit(self.remove_requested))
+        self.action_trash = self.menu.addAction(strings.MENU_TRASH_FILE)
+        self.action_trash.triggered.connect(emit(self.trash_file_requested))
+        self.btn_more = IconButton("ellipsis", strings.BTN_MORE_ACTIONS)
+        self.btn_more.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.btn_more.setMenu(self.menu)
         self.btn_upgrade.clicked.connect(emit(self.upgrade_requested))
         self.btn_retry.clicked.connect(emit(self.retry_requested))
         self.btn_details.clicked.connect(emit(self.details_requested))
@@ -115,6 +134,7 @@ class JobWidget(QFrame):
             self.btn_details,
             self.btn_open,
             self.btn_show,
+            self.btn_more,
             self.btn_cancel,
             self.btn_remove,
         ):
@@ -183,3 +203,11 @@ class JobWidget(QFrame):
         self.btn_show.setVisible(status is JobStatus.COMPLETED)
         self.btn_cancel.setVisible(job.can_cancel)
         self.btn_remove.setVisible(status.is_finished)
+        has_file = status is JobStatus.COMPLETED and job.output_path is not None
+        self.action_trash.setVisible(has_file)
+        self.action_remove.setVisible(status.is_finished)
+        self.btn_more.setVisible(has_file)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        if any(action.isVisible() for action in self.menu.actions()):
+            self.menu.exec(event.globalPos())
