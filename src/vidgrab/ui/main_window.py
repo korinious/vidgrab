@@ -83,7 +83,7 @@ PREVIEW_THUMB = (240, 135)  # 16:9
 
 # Fetch errors about the link itself; shown under the URL field, which turns red.
 URL_ERROR_KINDS = frozenset(
-    {ErrorKind.INVALID_URL, ErrorKind.UNSUPPORTED_URL, ErrorKind.PLAYLIST_NOT_SUPPORTED}
+    {ErrorKind.INVALID_URL, ErrorKind.UNSUPPORTED_URL, ErrorKind.EMPTY_LISTING}
 )
 
 THEME_LABELS = {

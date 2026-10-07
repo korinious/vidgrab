@@ -215,3 +215,9 @@ def test_login_required_403_stays_login_required():
 def test_ffmpeg_missing_beats_generic_postprocessing():
     exc = PostProcessingError("ffprobe and ffmpeg not found. Please install or provide the path")
     assert classify(exc).kind is ErrorKind.FFMPEG_MISSING
+
+
+def test_empty_listing_message_and_not_retryable():
+    err = UserError(ErrorKind.EMPTY_LISTING, detail="https://x/list")
+    assert err.message == "Δεν βρέθηκαν διαθέσιμα βίντεο σε αυτόν τον σύνδεσμο."
+    assert not err.retryable

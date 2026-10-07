@@ -57,11 +57,11 @@ def test_fetch_info_maps_errors(fake_ydl, binaries):
     assert ei.value.kind is ErrorKind.PRIVATE
 
 
-def test_fetch_info_rejects_playlists(fake_ydl, binaries):
+def test_fetch_info_rejects_empty_playlists(fake_ydl, binaries):
     fake_ydl.scenario.info = {"_type": "playlist", "id": "PL1", "entries": []}
     with pytest.raises(UserError) as ei:
         fetch_info("https://www.youtube.com/playlist?list=PL1", binaries, ydl_factory=fake_ydl)
-    assert ei.value.kind is ErrorKind.PLAYLIST_NOT_SUPPORTED
+    assert ei.value.kind is ErrorKind.EMPTY_LISTING
 
 
 def test_fetch_info_invalid_url_never_calls_ytdlp(fake_ydl, binaries):

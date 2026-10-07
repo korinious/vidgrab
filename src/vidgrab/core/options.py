@@ -29,7 +29,6 @@ def base_options(binaries: Binaries, cookies: CookieConfig) -> dict[str, Any]:
         "quiet": True,
         "noprogress": True,
         "logger": YtDlpLogger(),
-        "noplaylist": True,
         "windowsfilenames": True,
         "socket_timeout": 30,
         "retries": 3,
