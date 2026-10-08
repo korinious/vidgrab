@@ -423,3 +423,40 @@ def test_list_options_default_on_and_round_trip():
     # settings files from v0.2.0 have none of these keys
     old = Settings.from_json({"quality": "best"})
     assert old.skip_downloaded is True
+
+
+def test_cooldown_waits_list_only_the_next_job_per_platform():
+    clock = FakeClock()
+    q = DownloadQueue(max_concurrent=3, cooldown=Cooldown(2, 5, clock, lambda lo, hi: 3.0))
+    yt = [q.add(_req(f"https://youtu.be/{i}")) for i in range(3)]
+    ig = q.add(_req("https://www.instagram.com/p/x/"))
+    q.start_next()  # yt[0] and ig start; yt[1], yt[2] wait for YouTube
+    assert q.cooldown_waits() == {yt[1].id: pytest.approx(3.0)}
+    changed = q.refresh_cooldowns()
+    assert changed == [yt[1]] and yt[1].cooldown_s == 3 and yt[2].cooldown_s is None
+    assert ig.cooldown_s is None
+    clock.now += 1.2
+    assert q.refresh_cooldowns() == [yt[1]] and yt[1].cooldown_s == 2  # 1.8 s -> "2s"
+    clock.now += 0.5
+    assert q.refresh_cooldowns() == [] and yt[1].cooldown_s == 2  # 1.3 s -> still "2s"
+    clock.now += 1.4
+    q.start_next()
+    assert yt[1].status is JobStatus.DOWNLOADING and yt[1].cooldown_s is None
+    q.refresh_cooldowns()
+    assert yt[2].cooldown_s is None  # all 3 slots busy: it waits for a slot, not the pause
+    q.mark_completed(ig.id, None)
+    q.refresh_cooldowns()
+    assert yt[2].cooldown_s == 3  # now it is next in line
+
+
+def test_no_cooldown_shown_while_slots_are_busy():
+    clock = FakeClock()
+    q = DownloadQueue(max_concurrent=1, cooldown=Cooldown(2, 5, clock, lambda lo, hi: 3.0))
+    first = q.add(_req("https://youtu.be/1"))
+    second = q.add(_req("https://youtu.be/2"))
+    q.start_next()
+    assert q.cooldown_waits() == {}  # waits for the slot, not the pause
+    q.mark_completed(first.id, None)
+    assert q.cooldown_waits() == {second.id: pytest.approx(3.0)}
+    q.cancel(second.id)
+    assert second.cooldown_s is None and q.cooldown_waits() == {}

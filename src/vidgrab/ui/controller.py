@@ -15,6 +15,8 @@ from vidgrab.ui.workers import DownloadWorker
 
 log = logging.getLogger(__name__)
 
+COUNTDOWN_TICK_MS = 250  # the shown whole seconds change on time, not up to 1 s late
+
 
 class DownloadController(QObject):
     job_added = Signal(object)  # DownloadJob
@@ -39,6 +41,10 @@ class DownloadController(QObject):
         self._cooldown_timer = QTimer(self)
         self._cooldown_timer.setSingleShot(True)
         self._cooldown_timer.timeout.connect(self._pump)
+        # Refreshes the "Αναμονή 3s" countdown on the cards while a pause is running.
+        self._countdown = QTimer(self)
+        self._countdown.setInterval(COUNTDOWN_TICK_MS)
+        self._countdown.timeout.connect(self._pump)  # also starts the job once it is time
 
     # --- public API (GUI thread only) --------------------------------------------------
     def enqueue(self, request: DownloadRequest, thumbnail_url: str | None = None) -> DownloadJob:
@@ -126,6 +132,7 @@ class DownloadController(QObject):
     def shutdown(self, timeout_ms: int = 10_000) -> None:
         """Cancel everything and wait for worker threads to stop."""
         self._cooldown_timer.stop()
+        self._countdown.stop()
         for job in self.queue.jobs:
             if job.can_cancel:
                 self.queue.cancel(job.id)
@@ -156,6 +163,16 @@ class DownloadController(QObject):
         wait = self.queue.seconds_until_next_start()
         if wait is not None and wait > 0:
             self._cooldown_timer.start(int(wait * 1000) + 50)
+        self._refresh_countdowns()
+
+    def _refresh_countdowns(self) -> None:
+        for job in self.queue.refresh_cooldowns():
+            self.job_changed.emit(job)
+        waiting = any(j.cooldown_s for j in self.queue.jobs)
+        if waiting and not self._countdown.isActive():
+            self._countdown.start()
+        elif not waiting:
+            self._countdown.stop()
 
     def _on_progress(self, job_id: int, progress: Progress) -> None:
         self.queue.update_progress(job_id, progress)

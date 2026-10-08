@@ -175,6 +175,8 @@ class JobWidget(QFrame):
             self.status.setText(job_status_text(job))
             if job.error:
                 self.status.setToolTip(f"{job.error.message}\n\n{job.error.detail}".strip())
+            elif job.cooldown_s:
+                self.status.setToolTip(strings.TOOLTIP_COOLDOWN)
             else:
                 self.status.setToolTip("")
 

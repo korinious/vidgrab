@@ -11,6 +11,7 @@ concurrency limit is global. Starts from the same platform are spaced by a rando
 from __future__ import annotations
 
 import itertools
+import math
 import random
 import time
 from collections.abc import Callable
@@ -44,6 +45,9 @@ class DownloadJob:
     attempts: int = 0
     thumbnail_url: str | None = field(default=None, compare=False)
     group_id: int | None = None
+    # Whole seconds left of the per-platform pause before this queued job starts
+    # ("Αναμονή 3s"); None when it is not waiting for that. Kept by refresh_cooldowns().
+    cooldown_s: int | None = None
 
     @property
     def can_cancel(self) -> bool:
@@ -182,6 +186,44 @@ class DownloadQueue:
         ]
         return max(0.0, min(waits)) if waits else None
 
+    def cooldown_waits(self) -> dict[int, float]:
+        """Queued jobs held back only by the per-platform pause: job id -> seconds left.
+
+        Only the job that will take the next free slot for its platform is listed, so the
+        queue card can show "Αναμονή 3s" without every later job of that list counting
+        down too. Jobs waiting for a free slot are not listed.
+        """
+        free = self.max_concurrent - self.active_count
+        now = self.cooldown.clock()
+        waits: dict[int, float] = {}
+        claimed: set[str] = set()
+        for job in self._jobs.values():
+            if free <= 0:
+                break
+            if job.status is not JobStatus.QUEUED:
+                continue
+            platform = platform_key(job.request.url)
+            if platform in claimed:
+                continue
+            claimed.add(platform)
+            left = self._next_start.get(platform, 0.0) - now
+            if left > 0:
+                waits[job.id] = left
+            free -= 1
+        return waits
+
+    def refresh_cooldowns(self) -> list[DownloadJob]:
+        """Update ``cooldown_s`` of every job; return the jobs whose value changed."""
+        waits = self.cooldown_waits()
+        changed = []
+        for job in self._jobs.values():
+            left = waits.get(job.id)
+            value = max(1, math.ceil(left)) if left else None
+            if job.cooldown_s != value:
+                job.cooldown_s = value
+                changed.append(job)
+        return changed
+
     # --- transitions -----------------------------------------------------------------
     def add(
         self,
@@ -222,6 +264,7 @@ class DownloadQueue:
             delay = self.cooldown.rng(self.cooldown.min_s, self.cooldown.max_s)
             self._next_start[platform] = now + max(0.0, delay)
             job.status = JobStatus.DOWNLOADING
+            job.cooldown_s = None
             job.attempts += 1
             job.progress = None
             started.append(job)
@@ -270,6 +313,7 @@ class DownloadQueue:
         job = self._jobs[job_id]
         if job.status is JobStatus.QUEUED:
             job.status = JobStatus.CANCELLED
+            job.cooldown_s = None
             return False
         if job.status in (JobStatus.DOWNLOADING, JobStatus.POSTPROCESSING):
             job.status = JobStatus.CANCELLING
