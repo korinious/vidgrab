@@ -111,6 +111,15 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
   to pre-unselect list items ("Υπάρχει ήδη"); single URLs, "Επανάληψη" and "Ξανά σε
   πλήρη ποιότητα" always download. Tests redirect it with the autouse `download_archive`
   fixture (`VIDGRAB_ARCHIVE`).
+- Window size: `ui/window_geometry.py` (pure, testable). First start: 1100 x min(900, screen
+  height - 40), centred on the screen under the mouse; later starts restore the geometry
+  saved in `ui.json` at close, only if its title bar is still on a screen. The page sits
+  in a `widgets.PageScroll`, which scrolls only below the page's minimum height. Keep the
+  minimums small enough for 1366x768 and 1920x1080 at 150 % (1280x720 logical);
+  `tests/test_window_geometry.py` checks both. In the list screen only the grid area
+  scrolls; the bar with "Λήψη N videos" (and the 25+ warning) stays visible.
+- The per-platform pause shows on the waiting card as "Αναμονή 3s"
+  (`DownloadQueue.cooldown_waits()`/`refresh_cooldowns()`, controller ticker).
 - Never `setVisible(True)` a widget before it has a parent (in a layout): Qt shows it as a
   separate top-level window. `test_no_stray_top_level_windows` guards this.
 - External binaries (ffmpeg, ffprobe, deno) are found only via `core/binaries.py`.

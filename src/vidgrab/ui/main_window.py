@@ -8,8 +8,14 @@ import subprocess
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, Qt, QUrl
-from PySide6.QtGui import QActionGroup, QCloseEvent, QDesktopServices, QGuiApplication
+from PySide6.QtCore import QEvent, QObject, QRect, Qt, QUrl
+from PySide6.QtGui import (
+    QActionGroup,
+    QCloseEvent,
+    QCursor,
+    QDesktopServices,
+    QGuiApplication,
+)
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -59,6 +65,7 @@ from vidgrab.ui.widgets import (
     ErrorRow,
     IconButton,
     IconLabel,
+    PageScroll,
     SegmentedControl,
     Thumbnail,
     card,
@@ -66,6 +73,12 @@ from vidgrab.ui.widgets import (
     label,
     set_prop,
     text_button,
+)
+from vidgrab.ui.window_geometry import (
+    SavedGeometry,
+    initial_geometry,
+    minimum_size,
+    screen_showing,
 )
 from vidgrab.ui.workers import MetadataWorker, VersionsWorker
 
@@ -75,9 +88,7 @@ PREVIEW_THUMB = (240, 135)  # 16:9
 GROUP_COLLAPSE_OVER = 5  # list groups with more videos start collapsed in the queue
 GROUP_INDENT = 28  # px: a list's jobs sit indented under its header card
 SCOPE_VIDEO, SCOPE_LIST = "video", "list"
-QUEUE_MIN_HEIGHT = 180
-QUEUE_MIN_HEIGHT_WHILE_SELECTING = 150  # also its maximum: the grid gets the height
-QWIDGETSIZE_MAX = (1 << 24) - 1
+QUEUE_MIN_HEIGHT = 110  # about one card; small screens need the height elsewhere
 
 # Fetch errors about the link itself; shown under the URL field, which turns red.
 URL_ERROR_KINDS = frozenset(
@@ -145,8 +156,8 @@ class MainWindow(QMainWindow):
         self.controller.group_removed.connect(self._on_group_removed)
 
         self.setWindowTitle(strings.WINDOW_TITLE)
-        self.resize(1100, 900)
-        self.setMinimumSize(640, 560)
+        self._start_maximized = False
+        self.place_on_screen()
         self._build_ui()
         self._show_binary_warnings()
         self._update_queue_view()
@@ -159,7 +170,7 @@ class MainWindow(QMainWindow):
         content.setMaximumWidth(CONTENT_MAX_WIDTH)
         column = QVBoxLayout(content)
         column.setContentsMargins(24, 18, 24, 14)
-        column.setSpacing(16)
+        column.setSpacing(12)
         column.addLayout(self._build_header())
 
         self.warning_banner = Banner()
@@ -189,7 +200,13 @@ class MainWindow(QMainWindow):
         outer.addStretch(1)
         outer.addWidget(content, 1000)
         outer.addStretch(1)
-        self.setCentralWidget(root)
+        # Last resort for very short screens: the page scrolls instead of being squashed.
+        # On 1366x768 and on 1920x1080 at 150 % everything fits and no scroll bar shows.
+        self.page_scroll = PageScroll()
+        self.page_scroll.setObjectName("PageScroll")
+        self.page_scroll.setWidget(root)
+        self.setCentralWidget(self.page_scroll)
+        self.page = root
 
     def _build_header(self) -> QHBoxLayout:
         brand = label("VidGrab", role="brand")
@@ -403,6 +420,43 @@ class MainWindow(QMainWindow):
             self.warning_banner.setText("\n".join(warnings))
             self.warning_banner.show()
 
+    # --- window size and position ------------------------------------------------------
+    def place_on_screen(
+        self, screens: list[QRect] | None = None, opening: QRect | None = None
+    ) -> None:
+        """Saved size/position if still on a screen, else min(900, screen - 40) centred.
+
+        ``screens`` (available areas of all screens) and ``opening`` (the screen to open
+        on) default to the real ones; tests pass e.g. a 1366x768 laptop.
+        """
+        if screens is None:
+            screens = [screen.availableGeometry() for screen in QGuiApplication.screens()]
+        if opening is None:
+            screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+            opening = screen.availableGeometry()
+        rect, self._start_maximized = initial_geometry(self.prefs.window, screens, opening)
+        self.setMinimumSize(*minimum_size(screen_showing(rect, screens) or opening))
+        self.setGeometry(rect)
+
+    def show_initial(self) -> None:
+        """Show as it was left: maximised or not."""
+        if self._start_maximized:
+            self.showMaximized()
+        else:
+            self.show()
+
+    def _remember_geometry(self) -> None:
+        maximized = self.isMaximized()
+        rect = self.normalGeometry() if maximized else self.geometry()
+        if rect.isEmpty():
+            return
+        self.prefs = replace(self.prefs, window=SavedGeometry.from_rect(rect, maximized))
+        if self._prefs_path:
+            try:
+                save_prefs(self.prefs, self._prefs_path)
+            except OSError:
+                log.exception("Could not save UI preferences")
+
     # --- theme -------------------------------------------------------------------------
     def set_theme(self, mode: ThemeMode | str) -> None:
         mode = ThemeMode(mode)
@@ -550,11 +604,8 @@ class MainWindow(QMainWindow):
         self.preview_card.hide()
         self.selection_view.show()
         self.btn_download.setEnabled(False)  # the list has its own "Λήψη N videos"
-        # The grid gets the spare height; the queue keeps a smaller minimum meanwhile.
+        # The list gets the height; the queue shows only its header meanwhile.
         self._column.setStretchFactor(self.selection_view, 1)
-        self._column.setStretchFactor(self.queue_stack, 0)
-        self.queue_stack.setMinimumHeight(QUEUE_MIN_HEIGHT_WHILE_SELECTING)
-        self.queue_stack.setMaximumHeight(QUEUE_MIN_HEIGHT_WHILE_SELECTING)
         self._selecting = True
         self._update_queue_view()
         first = next((c for c in self.selection_view.cards if c.entry.available), None)
@@ -567,9 +618,6 @@ class MainWindow(QMainWindow):
             return
         self.selection_view.hide()
         self._column.setStretchFactor(self.selection_view, 0)
-        self._column.setStretchFactor(self.queue_stack, 1)
-        self.queue_stack.setMinimumHeight(QUEUE_MIN_HEIGHT)
-        self.queue_stack.setMaximumHeight(QWIDGETSIZE_MAX)
         self._selecting = False
         self._update_queue_view()
         self.preview_card.show()
@@ -807,8 +855,9 @@ class MainWindow(QMainWindow):
         jobs = self.controller.queue.jobs
         self.queue_counter.setText(queue_counter_text(jobs))
         self.queue_stack.setCurrentWidget(self.queue_list if jobs else self.empty_state)
-        # While choosing from a list, an empty queue gives its height to the grid.
-        self.queue_stack.setVisible(bool(jobs) or not self._selecting)
+        # While choosing from a list the queue shows only its header and counter: the
+        # list gets the height (a 1366x768 laptop or 150 % scaling has little to spare).
+        self.queue_stack.setVisible(not self._selecting)
         self.btn_clear.setEnabled(any(j.status.is_finished for j in jobs))
 
     def _open_job(self, job_id: int) -> None:
@@ -934,6 +983,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+        self._remember_geometry()
         self.controller.shutdown()
         # yt-dlp metadata calls cannot be interrupted; give them a moment, then let the
         # process exit (QThread objects are parented to this window).

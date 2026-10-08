@@ -52,7 +52,7 @@ def run_gui(argv: list[str] | None = None) -> int:
         settings_path=settings_path,
         log_file=log_file,
     )
-    window.show()
+    window.show_initial()
     code = app.exec()
     log.info("%s exiting with code %d", APP_NAME, code)
     return code

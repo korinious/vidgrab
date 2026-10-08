@@ -191,6 +191,11 @@ QFrame[card="true"][role="group"] {{ background: {p.surface2}; }}
 
 /* --- list selection grid --------------------------------------------------- */
 QScrollArea#EntryScroll, QWidget#EntryGrid {{ background: transparent; }}
+QScrollArea#PageScroll {{ background: {p.bg}; }}
+QFrame[role="sticky-bar"] {{
+    background: {p.surface}; border: none; border-top: 1px solid {p.border};
+    border-bottom-left-radius: {RADIUS_CARD}px; border-bottom-right-radius: {RADIUS_CARD}px;
+}}
 QFrame[role="entry"] {{
     background: {p.surface}; border: 2px solid {p.border}; border-radius: {RADIUS_CARD}px;
 }}

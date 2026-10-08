@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QToolButton,
     QWidget,
@@ -554,3 +555,42 @@ class TwoLineLabel(QLabel):
 
     def _elide(self) -> None:
         super().setText(elide_lines(self._full, self.font(), self.width()))
+
+
+class PageScroll(QScrollArea):
+    """Scrolls its page only when the window is shorter than the page's minimum height.
+
+    QScrollArea's own ``widgetResizable`` sizes a page with word-wrapped labels to its
+    *preferred* height (height-for-width), so it scrolls although everything fits. This
+    gives the page the viewport's size, and only grows it to its minimum when needed.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWidgetResizable(False)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def setWidget(self, widget: QWidget) -> None:
+        super().setWidget(widget)
+        widget.installEventFilter(self)
+        self.fit()
+
+    def fit(self) -> None:
+        page = self.widget()
+        if page is None:
+            return
+        viewport = self.viewport().size()
+        needed = page.minimumSizeHint().height()
+        bar = self.verticalScrollBar().sizeHint().width() if needed > viewport.height() else 0
+        width = self.width() - 2 * self.frameWidth() - bar
+        page.resize(width, max(viewport.height(), needed))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.fit()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.widget() and event.type() == event.Type.LayoutRequest:
+            self.fit()
+        return super().eventFilter(obj, event)

@@ -605,12 +605,51 @@ def test_no_stray_top_level_windows(qapp, window, fake_ydl):
     assert window.isActiveWindow()
 
 
-def test_empty_queue_makes_room_for_the_grid(qapp, window, fake_ydl):
+def test_queue_body_makes_room_for_the_list(qapp, window, fake_ydl):
     view = open_playlist(qapp, window, fake_ydl, 3)
     assert window.queue_stack.isHidden()
     view.btn_back.click()
     assert not window.queue_stack.isHidden()
     open_link(qapp, window)
-    window.selection_view.btn_download.click()  # queue no longer empty, back in preview
-    open_link(qapp, window)
+    window.selection_view.btn_download.click()  # back in the preview, queue shown
     assert not window.queue_stack.isHidden()
+    open_link(qapp, window)
+    assert window.queue_stack.isHidden()  # only the queue header while choosing
+    assert window.queue_counter.isVisible()
+
+
+def test_queue_card_counts_down_the_platform_pause(qapp, make_window):
+    from vidgrab.core.jobqueue import Cooldown
+
+    class Clock:
+        now = 1000.0
+
+        def __call__(self):
+            return self.now
+
+    clock = Clock()
+    factory = PerUrlYdlFactory()
+    gate = threading.Event()
+    factory.scenario.progress_events = [
+        {"status": "downloading", "create": "a.part", "downloaded_bytes": 1, "total_bytes": 9}
+    ] * 2
+    factory.scenario.between_events = lambda i: gate.wait(5) if i == 1 else None
+    factory.scenario.final_name = "v.mp4"
+    win = make_window(factory)
+    win.controller.queue.cooldown = Cooldown(2, 5, clock, lambda lo, hi: 3.0)
+    open_link(qapp, win, "https://youtu.be/abc123")
+    first = win.enqueue_current()
+    second = win.enqueue_current()
+    card = win._job_items[second.id][1]
+    assert first.status is JobStatus.DOWNLOADING
+    assert second.status is JobStatus.QUEUED
+    assert card.status.text() == "Αναμονή 3s"
+    assert card.status_icon._name == "clock"
+    assert card.status.toolTip() == strings.TOOLTIP_COOLDOWN
+    clock.now += 1.5
+    wait_until(qapp, lambda: card.status.text() == "Αναμονή 2s")
+    clock.now += 1.6
+    wait_until(qapp, lambda: second.status is not JobStatus.QUEUED)  # the ticker starts it
+    assert "Αναμονή" not in card.status.text()
+    gate.set()
+    wait_until(qapp, lambda: first.status.is_finished and second.status.is_finished)

@@ -47,6 +47,7 @@ BATCH_SIZE = 60
 WARN_AT = 25  # selected downloads from which the amber "may get blocked" banner shows
 WIDE_GRID_PX = 760  # below this the grid has 2 columns, otherwise 3
 GRID_SPACING = 12
+PAGE_MARGIN = 16
 
 _STATE_CHIPS = {
     EntryState.PRIVATE: strings.CHIP_PRIVATE,
@@ -292,14 +293,14 @@ class SelectionView(QFrame):
         self.btn_download = text_button("", "primary", "download", "on_accent")
         self.btn_download.setMinimumHeight(44)
         self.btn_download.clicked.connect(self._emit_download)
-        top = QHBoxLayout()
-        top.setSpacing(8)
-        top.addWidget(self.btn_all)
-        top.addWidget(self.btn_none)
-        top.addSpacing(6)
-        top.addWidget(self.selected_label)
-        top.addStretch(1)
-        top.addWidget(self.btn_download)
+        bar_row = QHBoxLayout()
+        bar_row.setSpacing(8)
+        bar_row.addWidget(self.btn_all)
+        bar_row.addWidget(self.btn_none)
+        bar_row.addSpacing(6)
+        bar_row.addWidget(self.selected_label)
+        bar_row.addStretch(1)
+        bar_row.addWidget(self.btn_download)
 
         self.options = FormatOptions(settings, compact=True)
         self.options.changed.connect(self.format_changed)
@@ -328,11 +329,25 @@ class SelectionView(QFrame):
         self.grid.setContentsMargins(2, 2, 2, 2)
         self.grid.setSpacing(GRID_SPACING)
         self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        # Header, options and grid scroll together when the window is short (a 1366x768
+        # laptop, 150 % scaling); the bar with "Λήψη N videos" stays visible below them.
+        self.page = QWidget()
+        self.page.setObjectName("EntryGrid")
+        page = QVBoxLayout(self.page)
+        page.setContentsMargins(PAGE_MARGIN, 14, PAGE_MARGIN, 8)
+        page.setSpacing(10)
+        page.addLayout(header)
+        page.addWidget(self.options)
+        page.addLayout(checks)
+        page.addWidget(self.grid_host)
+        page.addStretch(1)
         self.scroll = QScrollArea()
         self.scroll.setObjectName("EntryScroll")
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll.setWidget(self.grid_host)
+        self.scroll.setWidget(self.page)
+        self.scroll.setMinimumHeight(120)
         self.scroll.viewport().installEventFilter(self)
         self.scroll.verticalScrollBar().valueChanged.connect(self._on_scrolled)
         self._thumb_timer = QTimer(self)
@@ -340,15 +355,19 @@ class SelectionView(QFrame):
         self._thumb_timer.setInterval(60)
         self._thumb_timer.timeout.connect(self._load_visible_thumbnails)
 
+        self.bar = QFrame()
+        self.bar.setProperty("role", "sticky-bar")
+        bar = QVBoxLayout(self.bar)
+        bar.setContentsMargins(PAGE_MARGIN, 10, PAGE_MARGIN, 12)
+        bar.setSpacing(8)
+        bar.addWidget(self.warning)  # next to the button it warns about, never scrolled away
+        bar.addLayout(bar_row)
+
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 14, 16, 14)
-        root.setSpacing(10)
-        root.addLayout(header)
-        root.addLayout(top)
-        root.addWidget(self.options)
-        root.addLayout(checks)
-        root.addWidget(self.warning)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
         root.addWidget(self.scroll, 1)
+        root.addWidget(self.bar)
 
         shortcut_all = QShortcut(QKeySequence(QKeySequence.StandardKey.SelectAll), self)
         shortcut_all.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
@@ -515,7 +534,7 @@ class SelectionView(QFrame):
         self._thumb_timer.start()
 
     def _card_width(self) -> int:
-        available = self.scroll.viewport().width() - 4
+        available = self.scroll.viewport().width() - 4 - 2 * PAGE_MARGIN
         self._columns = 3 if available >= WIDE_GRID_PX else 2
         return max(140, (available - GRID_SPACING * (self._columns - 1)) // self._columns)
 
