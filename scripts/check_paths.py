@@ -6,33 +6,14 @@ Windows jobs, because a bad path makes the Windows checkout itself fail).
 
 from __future__ import annotations
 
-import re
 import subprocess
 import sys
+from pathlib import Path
 
-INVALID_CHARS = set('<>:"|?*\\')
-RESERVED_NAMES = {
-    "CON", "PRN", "AUX", "NUL",
-    *(f"COM{i}" for i in range(1, 10)),
-    *(f"LPT{i}" for i in range(1, 10)),
-}  # fmt: skip
-_CONTROL = re.compile(r"[\x00-\x1f]")
-
-
-def windows_path_problems(path: str) -> list[str]:
-    """Return the reasons ``path`` (a git path with '/' separators) is invalid on Windows."""
-    problems: list[str] = []
-    for part in path.split("/"):
-        bad = sorted(INVALID_CHARS.intersection(part))
-        if bad:
-            problems.append(f"{part!r} contains {' '.join(bad)}")
-        if _CONTROL.search(part):
-            problems.append(f"{part!r} contains a control character")
-        if part.split(".")[0].upper() in RESERVED_NAMES:
-            problems.append(f"{part!r} is a reserved device name")
-        if part.endswith((".", " ")):
-            problems.append(f"{part!r} ends with a dot or space")
-    return problems
+# The rules live in the app (core/filenames.py, standard library only), so file names the
+# app creates and paths in this repo are checked the same way.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from vidgrab.core.filenames import windows_path_problems
 
 
 def tracked_paths() -> list[str]:

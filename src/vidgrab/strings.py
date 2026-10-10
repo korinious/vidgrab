@@ -115,7 +115,7 @@ WARN_FFMPEG_MISSING = (
 # --- Error messages ---------------------------------------------------------------------
 ERR_INVALID_URL = "Ο σύνδεσμος δεν είναι έγκυρος. Επικόλλησε έναν πλήρη σύνδεσμο (https://…)."
 ERR_UNSUPPORTED_URL = "Αυτός ο ιστότοπος ή ο σύνδεσμος δεν υποστηρίζεται."
-ERR_PLAYLIST_NOT_SUPPORTED = "Οι λίστες αναπαραγωγής δεν υποστηρίζονται ακόμα. Επικόλλησε τον σύνδεσμο ενός μεμονωμένου βίντεο."
+ERR_EMPTY_LISTING = "Δεν βρέθηκαν διαθέσιμα βίντεο σε αυτόν τον σύνδεσμο."
 ERR_PRIVATE = "Το βίντεο είναι ιδιωτικό ή ο λογαριασμός είναι κλειδωμένος."
 ERR_GEO_BLOCKED = "Το βίντεο δεν είναι διαθέσιμο στη χώρα σου (γεωγραφικός περιορισμός)."
 ERR_LOGIN_REQUIRED = (
@@ -199,3 +199,68 @@ CONFIRM_TRASH_TEXT = (
     "Να μεταφερθεί το «{name}» στον Κάδο Ανακύκλωσης;\n\nΜπορείς να το επαναφέρεις από εκεί."
 )
 TRASH_FAILED = "Δεν ήταν δυνατή η μεταφορά στον Κάδο Ανακύκλωσης:\n{path}"
+
+
+# --- Lists and multi-video posts (v0.3.0) ------------------------------------------------
+SCOPE_SEGMENT_NAME = "Τι να κατέβει"
+SCOPE_THIS_VIDEO = "Μόνο αυτό το βίντεο"
+SCOPE_WHOLE_LIST = "Όλη η λίστα"
+LABEL_LOADING_LIST = "Φόρτωση λίστας…"
+BTN_BACK = "Πίσω"
+LIST_VIDEO_COUNT_ONE = "1 video"
+LIST_VIDEO_COUNT_MANY = "{n} videos"
+BTN_SELECT_ALL = "Επιλογή όλων"
+BTN_SELECT_NONE = "Καμία"
+LIST_SELECTED_COUNT = "{selected} από {total} επιλεγμένα"
+BTN_DOWNLOAD_N_ONE = "Λήψη 1 video"
+BTN_DOWNLOAD_N_MANY = "Λήψη {n} videos"
+OPTION_SUBFOLDER = "Υποφάκελος με το όνομα της λίστας"
+OPTION_NUMBERING = "Αρίθμηση (01 - τίτλος)"
+OPTION_SKIP_DOWNLOADED = "Παράλειψη όσων έχω ήδη κατεβάσει"
+OPTION_SKIP_DOWNLOADED_TOOLTIP = (
+    "Όσα υπάρχουν στο ιστορικό λήψεων ξεκινούν αποεπιλεγμένα. "
+    "Μπορείς να τα επιλέξεις χειροκίνητα αν θέλεις να κατέβουν ξανά."
+)
+CHIP_PRIVATE = "Ιδιωτικό"
+CHIP_UNAVAILABLE = "Μη διαθέσιμο"
+CHIP_ALREADY_DOWNLOADED = "Υπάρχει ήδη"
+BTN_RENAME = "Μετονομασία"
+RENAME_FIELD_NAME = "Όνομα αρχείου"
+RENAME_HINT = "Enter για αποθήκευση, Esc για ακύρωση"
+ENTRY_CARD_NAME = "{position}. {title}"
+LIST_MANY_DOWNLOADS_WARNING = (
+    "{n} λήψεις μπορεί να προκαλέσουν προσωρινό μπλοκάρισμα από {platform}. "
+    "Οι λήψεις ξεκινούν με μικρή καθυστέρηση μεταξύ τους."
+)
+LIST_PLATFORM_FALLBACK = "τον ιστότοπο"
+LIST_PLATFORM_ARTICLE = "το {name}"  # "από το YouTube"
+SELECTION_VIEW_NAME = "Επιλογή videos"
+
+GROUP_PROGRESS = "{done}/{total}"
+BTN_CANCEL_ALL = "Ακύρωση όλων"
+BTN_RETRY_FAILED = "Επανάληψη αποτυχημένων"
+BTN_EXPAND = "Ανάπτυξη"
+BTN_COLLAPSE = "Σύμπτυξη"
+GROUP_SKIPPED_ONE = "1 υπάρχει ήδη"
+GROUP_SKIPPED_MANY = "{n} υπάρχουν ήδη"
+GROUP_FAILED_ONE = "1 απέτυχε"
+GROUP_FAILED_MANY = "{n} απέτυχαν"
+
+LABEL_HISTORY = "Ιστορικό λήψεων:"
+HISTORY_COUNT_ONE = "1 εγγραφή"
+HISTORY_COUNT_MANY = "{n} εγγραφές"
+BTN_CLEAR_HISTORY = "Καθαρισμός ιστορικού λήψεων"
+HISTORY_HINT = (
+    "Το ιστορικό χρησιμοποιείται μόνο στις λίστες, για να ξεκινούν αποεπιλεγμένα "
+    "όσα έχεις ήδη κατεβάσει. Τα αρχεία σου δεν αγγίζονται."
+)
+CONFIRM_CLEAR_HISTORY_TITLE = "Καθαρισμός ιστορικού λήψεων"
+CONFIRM_CLEAR_HISTORY_TEXT = (
+    "Να διαγραφεί το ιστορικό λήψεων ({count});\n\nΤα αρχεία που έχεις κατεβάσει δεν διαγράφονται."
+)
+
+STATUS_COOLDOWN = "Αναμονή {seconds}s"
+TOOLTIP_COOLDOWN = (
+    "Μικρή παύση ανάμεσα σε λήψεις από την ίδια πλατφόρμα, για λιγότερα μπλοκαρίσματα "
+    "(403/429). Η λήψη ξεκινά αυτόματα."
+)

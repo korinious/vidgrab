@@ -26,6 +26,8 @@ from urllib.parse import urlparse
 from yt_dlp.utils import DownloadCancelled
 
 from vidgrab import strings
+from vidgrab.core import archive
+from vidgrab.core.archive import archive_key
 from vidgrab.core.audiofix import CommandRunner, ensure_mp4_audio, run_command
 from vidgrab.core.binaries import Binaries
 from vidgrab.core.errors import ErrorKind, UserError, classify
@@ -151,6 +153,15 @@ def _final_path(info: Any, tracker: _Tracker) -> Path | None:
     return None
 
 
+def _single_video(info: Any) -> Any:
+    """With playlist_items yt-dlp returns the post as a playlist holding the one video."""
+    if isinstance(info, dict) and info.get("_type") in ("playlist", "multi_video"):
+        for entry in info.get("entries") or ():
+            if isinstance(entry, dict):
+                return {"extractor_key": info.get("extractor_key"), **entry}
+    return info
+
+
 def _wants_mp4_audio_check(request: DownloadRequest) -> bool:
     quality, container = Quality(request.quality), VideoContainer(request.container)
     return not quality.is_audio and container is VideoContainer.MP4
@@ -170,9 +181,20 @@ def _build_options(
             request.quality, request.container, request.audio_format, request.mp3_bitrate
         )
     )
+    if request.playlist_item:
+        # One video of a multi-video post that has no URL of its own.
+        opts["noplaylist"] = False
+        opts["playlist_items"] = str(request.playlist_item)
+    else:
+        opts["noplaylist"] = True
+    if request.filename:
+        # A chosen name ("03 - Title"); "%" would start a yt-dlp template field.
+        template = request.filename.replace("%", "%%") + ".%(ext)s"
+    else:
+        template = OUTPUT_TEMPLATE
     opts.update(
         {
-            "outtmpl": {"default": str(stage / OUTPUT_TEMPLATE)},
+            "outtmpl": {"default": str(stage / template)},
             "progress_hooks": [tracker.progress_hook],
             "postprocessor_hooks": [tracker.postprocessor_hook],
         }
@@ -289,7 +311,9 @@ def download(
             )
         request.output_dir.mkdir(parents=True, exist_ok=True)
         with staging_dir(staging_root, job_id) as stage:
-            info = _extract_with_retries(request, binaries, tracker, stage, ydl_factory, policy)
+            info = _single_video(
+                _extract_with_retries(request, binaries, tracker, stage, ydl_factory, policy)
+            )
             staged = _final_path(info, tracker)
             if staged is None:
                 log.warning("yt-dlp reported no output file for %s", request.url)
@@ -340,6 +364,11 @@ def download(
             )
         raise err from exc
 
+    # Only now that the file is in its folder: the history feeds "Υπάρχει ήδη" for lists.
+    if isinstance(info, dict):
+        archive.record(
+            archive_key(info.get("extractor_key") or info.get("extractor"), info.get("id"))
+        )
     result = DownloadResult(path, requested_height=wanted, actual_height=got, upgrade=outcome)
     if result.downgraded:
         log.warning(

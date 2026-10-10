@@ -169,6 +169,8 @@ QLabel[role="chip"] {{
     padding: 2px 8px; font-size: 12px;
 }}
 QLabel[role="chip"][tone="warning"] {{ background: {p.warning_bg}; color: {p.warning_fg}; }}
+QLabel[role="chip"][tone="success"] {{ background: {p.chip_bg}; color: {p.success_fg}; }}
+QLabel[role="chip"][tone="error"] {{ background: {p.error_bg}; color: {p.error_fg}; }}
 QLabel[role="badge"] {{
     background: {p.overlay_bg}; color: #FFFFFF; border-radius: 4px;
     padding: 1px 5px; font-size: 11px; font-weight: 600;
@@ -185,6 +187,22 @@ QFrame[role="banner"] QLabel {{ color: {p.warning_fg}; }}
 QFrame[role="error-row"] {{ background: {p.error_bg}; border-radius: 8px; }}
 QFrame[role="error-row"] QLabel {{ color: {p.error_fg}; }}
 QFrame[role="thumb"] {{ background: {p.surface2}; border-radius: 8px; }}
+QFrame[card="true"][role="group"] {{ background: {p.surface2}; }}
+
+/* --- list selection grid --------------------------------------------------- */
+QScrollArea#EntryScroll, QWidget#EntryGrid {{ background: transparent; }}
+QScrollArea#PageScroll {{ background: {p.bg}; }}
+QFrame[role="sticky-bar"] {{
+    background: {p.surface}; border: none; border-top: 1px solid {p.border};
+    border-bottom-left-radius: {RADIUS_CARD}px; border-bottom-right-radius: {RADIUS_CARD}px;
+}}
+QFrame[role="entry"] {{
+    background: {p.surface}; border: 2px solid {p.border}; border-radius: {RADIUS_CARD}px;
+}}
+QFrame[role="entry"][selected="true"] {{ border: 2px solid {p.accent}; }}
+QFrame[role="entry"]:focus {{ border: 2px dashed {p.focus}; }}
+QFrame[role="entry"]:disabled {{ background: {p.bg}; }}
+QFrame[role="entry"] QLabel:disabled {{ color: {p.muted}; }}
 QFrame[role="empty"] QLabel {{ color: {p.muted}; }}
 
 /* --- inputs -------------------------------------------------------------- */
@@ -272,6 +290,8 @@ QProgressBar {{
     min-height: 4px; max-height: 4px;
 }}
 QProgressBar::chunk {{ background: {p.accent}; border-radius: 2px; }}
+QProgressBar[role="slim"] {{ min-height: 3px; max-height: 3px; border-radius: 1px; }}
+QProgressBar[role="slim"]::chunk {{ border-radius: 1px; }}
 QListWidget#Queue {{ background: transparent; border: none; outline: none; }}
 QListWidget#Queue::item {{ background: transparent; border: none; padding: 0; margin: 0; }}
 QListWidget#Queue::item:selected, QListWidget#Queue::item:hover {{ background: transparent; }}

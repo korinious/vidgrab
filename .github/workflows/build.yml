@@ -187,15 +187,24 @@ jobs:
           pattern: VidGrab-*-win64
           merge-multiple: true
 
-      # Releases are usually created in the GitHub UI (this session cannot push tags), with
-      # the notes pasted in. Then only attach the zip and leave the title and body alone.
+      # Releases are usually created in the GitHub UI (this session cannot push tags) with an
+      # empty description. Then: attach the zip, and fill an empty body from the notes file.
+      # A body that already has text is never changed, and neither is the title.
       # A release that doesn't exist yet is created from the notes file.
       - name: Publish release
         run: |
           shopt -s failglob
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo "Release $TAG exists: uploading the zip only (title and notes unchanged)"
+            echo "Release $TAG exists: uploading the zip"
             gh release upload "$TAG" VidGrab-*-win64.zip --clobber --repo "$GITHUB_REPOSITORY"
+            body="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+            if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+              echo "Release body is empty: filling it from docs/release-notes/${TAG}.md"
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+                --notes-file "docs/release-notes/${TAG}.md"
+            else
+              echo "Release body already has text: left unchanged"
+            fi
           else
             echo "Creating release $TAG from docs/release-notes/${TAG}.md"
             gh release create "$TAG" VidGrab-*-win64.zip \

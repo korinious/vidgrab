@@ -113,6 +113,8 @@ def progress_text(p: Progress) -> str:
 
 def job_status_text(job: DownloadJob) -> str:
     status = STATUS_LABELS[job.status]
+    if job.status is JobStatus.QUEUED and job.cooldown_s:
+        return strings.STATUS_COOLDOWN.format(seconds=job.cooldown_s)
     if job.status is JobStatus.DOWNLOADING and job.progress is not None:
         return progress_text(job.progress)
     if job.status is JobStatus.FAILED and isinstance(job.error, UserError):

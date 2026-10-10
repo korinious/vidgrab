@@ -14,6 +14,7 @@ from pathlib import Path
 
 from vidgrab.core.settings import default_settings_path
 from vidgrab.ui.theme import ThemeMode
+from vidgrab.ui.window_geometry import SavedGeometry
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ def prefs_path_for(settings_path: Path | None) -> Path:
 @dataclass
 class UiPrefs:
     theme: ThemeMode = ThemeMode.AUTO
+    window: SavedGeometry | None = None  # size/position at the last close
 
 
 def load_prefs(path: Path) -> UiPrefs:
@@ -40,6 +42,8 @@ def load_prefs(path: Path) -> UiPrefs:
         prefs.theme = ThemeMode(data.get("theme", prefs.theme))
     except (ValueError, AttributeError):
         log.warning("Unknown theme in %s", path)
+    if isinstance(data, dict):
+        prefs.window = SavedGeometry.from_json(data.get("window"))
     return prefs
 
 
@@ -48,7 +52,10 @@ def save_prefs(prefs: UiPrefs, path: Path) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".ui-", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"theme": prefs.theme.value}, fh)
+            data: dict = {"theme": prefs.theme.value}
+            if prefs.window is not None:
+                data["window"] = prefs.window.to_json()
+            json.dump(data, fh)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)

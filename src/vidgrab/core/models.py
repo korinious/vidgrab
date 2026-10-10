@@ -80,26 +80,81 @@ class VideoInfo:
     uploader: str | None = None
     extractor: str | None = None
     max_height: int | None = None  # best video resolution offered, e.g. 2160
+    # 1-based item of a multi-video post (Instagram carousel, X post) that has no URL of
+    # its own: download ``url`` with yt-dlp's playlist_items.
+    playlist_item: int | None = None
+    # Set when the link points at a video inside a list (watch?v=...&list=...): the
+    # preview then offers "Μόνο αυτό το βίντεο / Όλη η λίστα".
+    list_url: str | None = None
 
     @classmethod
-    def from_info_dict(cls, url: str, info: dict[str, Any]) -> VideoInfo:
+    def from_info_dict(
+        cls, url: str, info: dict[str, Any], playlist_item: int | None = None
+    ) -> VideoInfo:
         from vidgrab.core.formats import video_height  # local: formats imports models
 
         duration = info.get("duration")
         heights = [h for h in map(video_height, info.get("formats") or [info]) if h]
         return cls(
-            url=info.get("webpage_url") or url,
+            url=url if playlist_item else (info.get("webpage_url") or url),
             id=str(info.get("id") or ""),
             title=info.get("title") or info.get("id") or url,
             duration=int(duration) if isinstance(duration, (int, float)) else None,
-            thumbnail_url=info.get("thumbnail") or _best_thumbnail(info.get("thumbnails")),
+            thumbnail_url=info.get("thumbnail") or best_thumbnail(info.get("thumbnails")),
             uploader=info.get("uploader") or info.get("channel"),
             extractor=info.get("extractor_key") or info.get("extractor"),
             max_height=max(heights, default=None),
+            playlist_item=playlist_item,
         )
 
 
-def _best_thumbnail(thumbnails: Any) -> str | None:
+class EntryState(StrEnum):
+    AVAILABLE = "available"
+    PRIVATE = "private"  # "Ιδιωτικό"
+    UNAVAILABLE = "unavailable"  # deleted, blocked... "Μη διαθέσιμο"
+
+
+@dataclass(frozen=True)
+class ListingEntry:
+    """One video of a playlist or multi-video post, from a flat (cheap) extraction."""
+
+    position: int  # 1-based position in the list (used for "03 - title")
+    id: str
+    title: str
+    url: str  # what to download: the video's own URL, or the post URL with playlist_item
+    playlist_item: int | None = None
+    duration: int | None = None
+    thumbnail_url: str | None = None
+    state: EntryState = EntryState.AVAILABLE
+    archive_key: str | None = None  # "youtube abc123", to check the download history
+
+    @property
+    def available(self) -> bool:
+        return self.state is EntryState.AVAILABLE
+
+
+@dataclass(frozen=True)
+class Listing:
+    """A YouTube playlist, an Instagram carousel, an X post with several videos..."""
+
+    url: str
+    id: str
+    title: str
+    entries: tuple[ListingEntry, ...]
+    extractor: str | None = None
+    uploader: str | None = None
+
+    @property
+    def available_entries(self) -> list[ListingEntry]:
+        return [e for e in self.entries if e.available]
+
+    @property
+    def total_duration(self) -> int | None:
+        durations = [e.duration for e in self.available_entries if e.duration]
+        return sum(durations) if durations else None
+
+
+def best_thumbnail(thumbnails: Any) -> str | None:
     if not isinstance(thumbnails, list):
         return None
     urls = [t.get("url") for t in thumbnails if isinstance(t, dict) and t.get("url")]
@@ -156,6 +211,10 @@ class DownloadRequest:
     container: VideoContainer = VideoContainer.MP4  # used when quality is a video quality
     audio_format: AudioFormat = AudioFormat.MP3  # used when quality is AUDIO
     mp3_bitrate: int = DEFAULT_MP3_BITRATE  # kbps, used for AudioFormat.MP3
+    playlist_item: int | None = None  # download only this item of a multi-video post
+    # Final file name without extension (already sanitised), e.g. "03 - Title" for list
+    # items. None: yt-dlp's "Title [id]" as for single videos.
+    filename: str | None = None
 
 
 class UpgradeOutcome(StrEnum):

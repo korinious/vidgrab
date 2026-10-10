@@ -13,12 +13,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QWidget,
 )
 
 from vidgrab import strings
+from vidgrab.core import archive
 from vidgrab.core.cookies import COOKIE_SOURCE_LABELS, COOKIE_SOURCES_ORDER
 from vidgrab.core.models import CookieSource
 from vidgrab.core.settings import MAX_CONCURRENT, MIN_CONCURRENT, Settings
@@ -72,6 +74,22 @@ class SettingsDialog(QDialog):
         self.max_concurrent.setRange(MIN_CONCURRENT, MAX_CONCURRENT)
         self.max_concurrent.setValue(settings.max_concurrent)
 
+        # Download history ("Υπάρχει ήδη" in lists); cleared at once, after confirmation.
+        self.history_count = QLabel()
+        self.history_count.setProperty("tone", "muted")
+        self.btn_clear_history = QPushButton(strings.BTN_CLEAR_HISTORY)
+        self.btn_clear_history.setAccessibleName(strings.BTN_CLEAR_HISTORY)
+        self.btn_clear_history.clicked.connect(self.clear_history)
+        history_row = QHBoxLayout()
+        history_row.setContentsMargins(0, 0, 0, 0)
+        history_row.addWidget(self.history_count)
+        history_row.addStretch(1)
+        history_row.addWidget(self.btn_clear_history)
+        history_hint = QLabel(strings.HISTORY_HINT)
+        history_hint.setWordWrap(True)
+        history_hint.setProperty("tone", "muted")
+        self._update_history()
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -84,6 +102,8 @@ class SettingsDialog(QDialog):
         form.addRow(strings.LABEL_COOKIE_FILE, self.cookie_file_row)
         form.addRow("", hint)
         form.addRow(strings.LABEL_MAX_CONCURRENT, self.max_concurrent)
+        form.addRow(strings.LABEL_HISTORY, history_row)
+        form.addRow("", history_hint)
         form.addRow(buttons)
 
         self.cookie_source.currentIndexChanged.connect(self._sync_enabled)
@@ -117,3 +137,29 @@ class SettingsDialog(QDialog):
     def result_theme(self) -> ThemeMode:
         # QComboBox hands StrEnum item data back as plain str; convert at the boundary.
         return ThemeMode(self.theme_combo.currentData())
+
+    # --- download history ------------------------------------------------------------
+    def _update_history(self) -> None:
+        count = archive.count()
+        self.history_count.setText(history_count_text(count))
+        self.btn_clear_history.setEnabled(count > 0)
+
+    def clear_history(self) -> None:
+        count = archive.count()
+        if count and self._confirm_clear_history(count):
+            archive.clear()
+        self._update_history()
+
+    def _confirm_clear_history(self, count: int) -> bool:
+        answer = QMessageBox.question(
+            self,
+            strings.CONFIRM_CLEAR_HISTORY_TITLE,
+            strings.CONFIRM_CLEAR_HISTORY_TEXT.format(count=history_count_text(count)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+
+def history_count_text(count: int) -> str:
+    return strings.HISTORY_COUNT_ONE if count == 1 else strings.HISTORY_COUNT_MANY.format(n=count)

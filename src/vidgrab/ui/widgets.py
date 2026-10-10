@@ -10,7 +10,17 @@ from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QFont, QFontMetrics, QKeyEvent, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QKeyEvent,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QTextLayout,
+)
 from PySide6.QtWidgets import (
     QAbstractButton,
     QButtonGroup,
@@ -18,6 +28,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QToolButton,
     QWidget,
@@ -261,6 +272,10 @@ class SegmentedControl(QFrame):
         button.setAccessibleName(f"{self.accessibleName()}: {text}")
         button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # The checked segment is bold: reserve its width so the text is never clipped.
+        bold = QFont(button.font())
+        bold.setWeight(QFont.Weight.DemiBold)
+        button.setMinimumWidth(QFontMetrics(bold).horizontalAdvance(text) + 30)
         button.toggled.connect(lambda checked, i=index: checked and self._on_checked(i))
         button.installEventFilter(self)
         self._group.addButton(button, index)
@@ -409,9 +424,173 @@ class Thumbnail(QFrame):
         else:
             palette = current_palette()
             size = max(16, min(self.width(), self.height()) // 2)
+            size = min(size, 40)
             name = "music" if self._audio else "download"
             pm = render(name, palette.muted, size, self.devicePixelRatioF() or 1.0)
             painter.drawPixmap(
                 round((self.width() - size) / 2), round((self.height() - size) / 2), pm
             )
+        if not self.isEnabled():  # private/unavailable list items
+            veil = QColor(current_palette().bg)
+            veil.setAlphaF(0.6)
+            painter.fillRect(rect, veil)
         painter.end()
+
+
+class CheckBox(QAbstractButton):
+    """Check box drawn from the theme tokens (accent fill + Lucide check when checked)."""
+
+    BOX = 20
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setText(text)
+        self.setCheckable(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if text:
+            self.setAccessibleName(text)
+        theme_manager().changed.connect(lambda *_: self.update())
+
+    def sizeHint(self) -> QSize:
+        fm = self.fontMetrics()
+        text_w = fm.horizontalAdvance(self.text()) + 10 if self.text() else 0
+        return QSize(self.BOX + 8 + text_w, max(32, fm.height() + 10))
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def hitButton(self, pos) -> bool:
+        return self.rect().contains(pos)
+
+    def paintEvent(self, event) -> None:
+        p = current_palette()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if not self.isEnabled():
+            painter.setOpacity(0.45)
+        box = QRectF(4, (self.height() - self.BOX) / 2, self.BOX, self.BOX)
+        if self.isChecked():
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(p.accent))
+            painter.drawRoundedRect(box, 6, 6)
+            dpr = self.devicePixelRatioF() or 1.0
+            icon_px = 14
+            pm = render("check", p.on_accent, icon_px, dpr)
+            painter.drawPixmap(
+                round(box.x() + (self.BOX - icon_px) / 2),
+                round(box.y() + (self.BOX - icon_px) / 2),
+                pm,
+            )
+        else:
+            painter.setPen(QPen(QColor(p.muted), 1.5))
+            painter.setBrush(QColor(p.surface))
+            painter.drawRoundedRect(box.adjusted(0.75, 0.75, -0.75, -0.75), 6, 6)
+        if self.hasFocus():
+            painter.setPen(QPen(QColor(p.focus), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(box.adjusted(-3, -3, 3, 3), 8, 8)
+        if self.text():
+            painter.setPen(QColor(p.text))
+            text_rect = self.rect().adjusted(int(box.right()) + 10, 0, 0, 0)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, self.text())
+        painter.end()
+
+
+def elide_lines(text: str, font: QFont, width: int, lines: int = 2) -> str:
+    """Wrap ``text`` to ``width`` and cut it to ``lines`` lines, the last ending in '…'."""
+    if width <= 0 or not text:
+        return text
+    layout = QTextLayout(text, font)
+    layout.beginLayout()
+    spans: list[tuple[int, int]] = []
+    while True:
+        line = layout.createLine()
+        if not line.isValid():
+            break
+        line.setLineWidth(width)
+        spans.append((line.textStart(), line.textLength()))
+    layout.endLayout()
+    if len(spans) <= lines:
+        # Explicit breaks: the label itself does not wrap.
+        return "\n".join(text[start : start + length].rstrip() for start, length in spans)
+    head = [text[start : start + length].rstrip() for start, length in spans[: lines - 1]]
+    rest = text[spans[lines - 1][0] :]
+    tail = QFontMetrics(font).elidedText(rest, Qt.TextElideMode.ElideRight, width)
+    return "\n".join([*head, tail])
+
+
+class TwoLineLabel(QLabel):
+    """Title in at most two lines with '…'; the full text stays in text() and the tooltip."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self.setWordWrap(False)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        self._full = text
+        self.setToolTip(text)
+        self._update_height()
+        self._elide()
+
+    def text(self) -> str:
+        return self._full
+
+    def _update_height(self) -> None:
+        self.setFixedHeight(QFontMetrics(self.font()).lineSpacing() * 2 + 2)
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() in (event.Type.FontChange, event.Type.StyleChange):
+            self._update_height()
+            self._elide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self) -> None:
+        super().setText(elide_lines(self._full, self.font(), self.width()))
+
+
+class PageScroll(QScrollArea):
+    """Scrolls its page only when the window is shorter than the page's minimum height.
+
+    QScrollArea's own ``widgetResizable`` sizes a page with word-wrapped labels to its
+    *preferred* height (height-for-width), so it scrolls although everything fits. This
+    gives the page the viewport's size, and only grows it to its minimum when needed.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWidgetResizable(False)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def setWidget(self, widget: QWidget) -> None:
+        super().setWidget(widget)
+        widget.installEventFilter(self)
+        self.fit()
+
+    def fit(self) -> None:
+        page = self.widget()
+        if page is None:
+            return
+        viewport = self.viewport().size()
+        needed = page.minimumSizeHint().height()
+        bar = self.verticalScrollBar().sizeHint().width() if needed > viewport.height() else 0
+        width = self.width() - 2 * self.frameWidth() - bar
+        page.resize(width, max(viewport.height(), needed))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.fit()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.widget() and event.type() == event.Type.LayoutRequest:
+            self.fit()
+        return super().eventFilter(obj, event)

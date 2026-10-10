@@ -22,7 +22,7 @@ from vidgrab import strings
 class ErrorKind(StrEnum):
     INVALID_URL = "invalid_url"
     UNSUPPORTED_URL = "unsupported_url"
-    PLAYLIST_NOT_SUPPORTED = "playlist_not_supported"
+    EMPTY_LISTING = "empty_listing"
     PRIVATE = "private"
     GEO_BLOCKED = "geo_blocked"
     LOGIN_REQUIRED = "login_required"
@@ -44,7 +44,7 @@ class ErrorKind(StrEnum):
 MESSAGES: dict[ErrorKind, str] = {
     ErrorKind.INVALID_URL: strings.ERR_INVALID_URL,
     ErrorKind.UNSUPPORTED_URL: strings.ERR_UNSUPPORTED_URL,
-    ErrorKind.PLAYLIST_NOT_SUPPORTED: strings.ERR_PLAYLIST_NOT_SUPPORTED,
+    ErrorKind.EMPTY_LISTING: strings.ERR_EMPTY_LISTING,
     ErrorKind.PRIVATE: strings.ERR_PRIVATE,
     ErrorKind.GEO_BLOCKED: strings.ERR_GEO_BLOCKED,
     ErrorKind.LOGIN_REQUIRED: strings.ERR_LOGIN_REQUIRED,
@@ -78,7 +78,7 @@ class UserError(Exception):
         return self.kind not in (
             ErrorKind.INVALID_URL,
             ErrorKind.UNSUPPORTED_URL,
-            ErrorKind.PLAYLIST_NOT_SUPPORTED,
+            ErrorKind.EMPTY_LISTING,
         )
 
 

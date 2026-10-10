@@ -49,6 +49,10 @@ class Settings:
     video_container: VideoContainer = VideoContainer.MP4
     audio_format: AudioFormat = AudioFormat.MP3
     mp3_bitrate: int = DEFAULT_MP3_BITRATE
+    # Options of the list selection screen.
+    list_subfolder: bool = True  # "Υποφάκελος με το όνομα της λίστας"
+    list_numbering: bool = True  # "Αρίθμηση (01 - τίτλος)"
+    skip_downloaded: bool = True  # "Παράλειψη όσων έχω ήδη κατεβάσει" (lists only)
 
     @property
     def cookies(self) -> CookieConfig:
@@ -101,6 +105,12 @@ class Settings:
             log.warning("Unknown cookie source %r in settings", data.get("cookie_source"))
         if isinstance(data.get("cookie_file"), str) and data["cookie_file"]:
             s.cookie_file = data["cookie_file"]
+        for name in ("list_subfolder", "list_numbering", "skip_downloaded"):
+            value = data.get(name)
+            if isinstance(value, bool):
+                setattr(s, name, value)
+            elif value is not None:
+                log.warning("Ignoring non-boolean %s=%r in settings", name, value)
         mc = data.get("max_concurrent")
         if isinstance(mc, int) and not isinstance(mc, bool):
             s.max_concurrent = max(MIN_CONCURRENT, min(MAX_CONCURRENT, mc))

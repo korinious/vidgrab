@@ -4,22 +4,26 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from vidgrab.core.binaries import Binaries
 from vidgrab.core.errors import UserError
-from vidgrab.core.jobqueue import DownloadJob, DownloadQueue
+from vidgrab.core.jobqueue import DownloadJob, DownloadQueue, JobGroup
 from vidgrab.core.models import DownloadRequest, DownloadResult, Progress
 from vidgrab.core.options import YdlFactory, default_ydl_factory
 from vidgrab.ui.workers import DownloadWorker
 
 log = logging.getLogger(__name__)
 
+COUNTDOWN_TICK_MS = 250  # the shown whole seconds change on time, not up to 1 s late
+
 
 class DownloadController(QObject):
     job_added = Signal(object)  # DownloadJob
     job_changed = Signal(object)  # DownloadJob
     job_removed = Signal(int)  # job id
+    group_added = Signal(object)  # JobGroup, emitted before its jobs' job_added
+    group_removed = Signal(int)  # group id, once its last job is gone
 
     def __init__(
         self,
@@ -33,6 +37,14 @@ class DownloadController(QObject):
         self._ydl_factory = ydl_factory
         self.queue = DownloadQueue(max_concurrent)
         self._workers: dict[int, DownloadWorker] = {}
+        # Wakes the queue when a job held back by the per-platform pause may start.
+        self._cooldown_timer = QTimer(self)
+        self._cooldown_timer.setSingleShot(True)
+        self._cooldown_timer.timeout.connect(self._pump)
+        # Refreshes the "Αναμονή 3s" countdown on the cards while a pause is running.
+        self._countdown = QTimer(self)
+        self._countdown.setInterval(COUNTDOWN_TICK_MS)
+        self._countdown.timeout.connect(self._pump)  # also starts the job once it is time
 
     # --- public API (GUI thread only) --------------------------------------------------
     def enqueue(self, request: DownloadRequest, thumbnail_url: str | None = None) -> DownloadJob:
@@ -41,6 +53,40 @@ class DownloadController(QObject):
         self.job_added.emit(job)
         self._pump()
         return job
+
+    def enqueue_group(
+        self,
+        title: str,
+        platform: str | None,
+        items: list[tuple[DownloadRequest, str | None]],
+        skipped: int = 0,
+    ) -> tuple[JobGroup, list[DownloadJob]]:
+        """Queue the chosen videos of a list as separate jobs under one group."""
+        group = self.queue.add_group(title, platform, skipped)
+        log.info("Queued list %r: %d videos (%d skipped)", title, len(items), skipped)
+        self.group_added.emit(group)
+        jobs = []
+        for request, thumbnail_url in items:
+            job = self.queue.add(request, thumbnail_url, group_id=group.id)
+            jobs.append(job)
+            self.job_added.emit(job)
+        self._pump()
+        return group, jobs
+
+    def cancel_group(self, group_id: int) -> None:
+        """ "Ακύρωση όλων" of a list."""
+        for job_id in self.queue.cancel_group(group_id):
+            if worker := self._workers.get(job_id):
+                worker.cancel()
+        for job in self.queue.group_jobs(group_id):
+            self.job_changed.emit(job)
+        self._pump()
+
+    def retry_failed(self, group_id: int) -> None:
+        """ "Επανάληψη αποτυχημένων" of a list."""
+        for job_id in self.queue.retry_failed(group_id):
+            self.job_changed.emit(self.queue.get(job_id))
+        self._pump()
 
     def cancel(self, job_id: int) -> None:
         needs_signal = self.queue.cancel(job_id)
@@ -64,10 +110,16 @@ class DownloadController(QObject):
     def remove(self, job_id: int) -> None:
         self.queue.remove(job_id)
         self.job_removed.emit(job_id)
+        self._drop_empty_groups()
 
     def clear_finished(self) -> None:
         for job_id in self.queue.clear_finished():
             self.job_removed.emit(job_id)
+        self._drop_empty_groups()
+
+    def _drop_empty_groups(self) -> None:
+        for group_id in self.queue.drop_empty_groups():
+            self.group_removed.emit(group_id)
 
     def set_max_concurrent(self, value: int) -> None:
         self.queue.max_concurrent = value
@@ -79,6 +131,8 @@ class DownloadController(QObject):
 
     def shutdown(self, timeout_ms: int = 10_000) -> None:
         """Cancel everything and wait for worker threads to stop."""
+        self._cooldown_timer.stop()
+        self._countdown.stop()
         for job in self.queue.jobs:
             if job.can_cancel:
                 self.queue.cancel(job.id)
@@ -106,6 +160,19 @@ class DownloadController(QObject):
             self._workers[job.id] = worker
             self.job_changed.emit(job)
             worker.start()
+        wait = self.queue.seconds_until_next_start()
+        if wait is not None and wait > 0:
+            self._cooldown_timer.start(int(wait * 1000) + 50)
+        self._refresh_countdowns()
+
+    def _refresh_countdowns(self) -> None:
+        for job in self.queue.refresh_cooldowns():
+            self.job_changed.emit(job)
+        waiting = any(j.cooldown_s for j in self.queue.jobs)
+        if waiting and not self._countdown.isActive():
+            self._countdown.start()
+        elif not waiting:
+            self._countdown.stop()
 
     def _on_progress(self, job_id: int, progress: Progress) -> None:
         self.queue.update_progress(job_id, progress)
