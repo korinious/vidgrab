@@ -110,3 +110,11 @@ def test_python_package_licenses_are_collected(tmp_path):
     assert any(p.name.startswith("mutagen-") for p in tmp_path.iterdir())
     # dev tools are not shipped
     assert "pytest" not in index and "pyinstaller" not in index.lower()
+
+
+def test_ffmpeg_source_is_pinned():
+    build = yaml.safe_load((ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8"))
+    assert re.fullmatch(r"[0-9a-f]{64}", build["env"]["FFMPEG_SRC_SHA256"])
+    assert build["env"]["FFMPEG_SRC_URL"].endswith(
+        f"ffmpeg-{build['env']['FFMPEG_VERSION']}.tar.xz"
+    )
