@@ -11,6 +11,10 @@ writes, for each theme (``-dark`` / ``-light``):
   private and a deleted video, two already downloaded).
 - ``screenshot-queue-group-<theme>.png``: a list in the queue (expanded, 3/5 done, a 403,
   one downloading) and a collapsed one waiting.
+- ``screenshot-update-<theme>.png``: the update banner under the header ("Διαθέσιμη η
+  VidGrab 0.4.1"), and ``screenshot-update-progress-<theme>.png`` while it downloads.
+- ``screenshot-whatsnew-<theme>.png``: the "Τι νέο" dialog with the release notes of the
+  current version (``docs/release-notes/v<version>.md``) as Markdown.
 
 Everything the demo writes (settings, "downloaded" files, staging, history) goes to a
 temporary directory; only the PNGs are written to the given folder.
@@ -36,6 +40,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from yt_dlp.utils import DownloadError  # noqa: E402
 
 from conftest import FakeScenario, FakeYdlFactory, PerUrlYdlFactory  # noqa: E402
+from vidgrab import __version__  # noqa: E402
 from vidgrab.core import archive, downloader, jobqueue  # noqa: E402
 from vidgrab.core.binaries import Binaries, component_versions  # noqa: E402
 from vidgrab.core.models import (  # noqa: E402
@@ -46,6 +51,7 @@ from vidgrab.core.models import (  # noqa: E402
     VideoContainer,
 )
 from vidgrab.core.settings import Settings  # noqa: E402
+from vidgrab.core.updates import Asset, UpdateInfo  # noqa: E402
 from vidgrab.ui.main_window import MainWindow  # noqa: E402
 from vidgrab.ui.theme import ThemeMode  # noqa: E402
 
@@ -402,6 +408,54 @@ def render_queue_group(app: QApplication, mode: ThemeMode, out_png: Path, tmp_di
     print(f"saved {out_png}")
 
 
+def demo_update() -> UpdateInfo:
+    major, minor, patch = (int(n) for n in __version__.split("."))
+    version = f"{major}.{minor}.{patch + 1}"
+    notes = (ROOT / "docs" / "release-notes" / f"v{__version__}.md").read_text(encoding="utf-8")
+    base = f"https://github.com/korinious/vidgrab/releases/download/v{version}"
+    name = f"VidGrab-{version}-win64.zip"
+    return UpdateInfo(
+        version=version,
+        notes=notes.replace(__version__, version),
+        page_url=f"https://github.com/korinious/vidgrab/releases/tag/v{version}",
+        zip=Asset(name, f"{base}/{name}", 98_000_000),
+        sums=Asset("SHA256SUMS.txt", f"{base}/SHA256SUMS.txt", 100),
+    )
+
+
+def render_update(app: QApplication, mode: ThemeMode, out_png: Path, tmp_dir: Path) -> None:
+    win = make_window(app, mode, tmp_dir, FakeYdlFactory())
+    win.resize(1180, 720)
+    win.show_update(demo_update())
+    win.url_edit.setFocus()
+    win.clipboard_hint.hide()
+    settle(app)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    win.grab().save(str(out_png))
+    # The same banner while the zip downloads (progress drawn, no real download).
+    banner = win.update_banner
+    banner.show_downloading()
+    banner.set_progress(41_200_000, 98_000_000)
+    settle(app)
+    progress_png = out_png.with_name(out_png.name.replace("update-", "update-progress-"))
+    banner.grab().save(str(progress_png))
+    close(app, win)
+    print(f"saved {out_png}, {progress_png}")
+
+
+def render_whats_new(app: QApplication, mode: ThemeMode, out_png: Path, tmp_dir: Path) -> None:
+    win = make_window(app, mode, tmp_dir, FakeYdlFactory())
+    win.show_update(demo_update())
+    dialog = win.show_release_notes()
+    dialog.resize(720, 640)
+    settle(app)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    dialog.grab().save(str(out_png))
+    dialog.close()
+    close(app, win)
+    print(f"saved {out_png}")
+
+
 def main(out_dir: Path) -> None:
     app = QApplication([])
     # No real waiting between the 403 retries.
@@ -419,6 +473,8 @@ def main(out_dir: Path) -> None:
                 ("screenshot", render),
                 ("screenshot-playlist", render_playlist),
                 ("screenshot-queue-group", render_queue_group),
+                ("screenshot-update", render_update),
+                ("screenshot-whatsnew", render_whats_new),
             ):
                 work = tmp_dir / f"{name}-{mode.value}"
                 work.mkdir()

@@ -366,6 +366,7 @@ def test_downloaded_items_start_unselected_but_can_be_chosen(qapp, window, fake_
     card = view.cards[1]
     assert not card.downloaded_chip.isHidden()
     assert card.downloaded_chip.text() == strings.CHIP_ALREADY_DOWNLOADED
+    assert card.downloaded_chip.property("tone") is None  # neutral grey, not green
     assert view.selected_indexes == [0, 2]
     assert view.skipped_count() == 1
     view.toggle(1)  # chosen by hand: downloads normally
@@ -653,3 +654,30 @@ def test_queue_card_counts_down_the_platform_pause(qapp, make_window):
     assert "Αναμονή" not in card.status.text()
     gate.set()
     wait_until(qapp, lambda: first.status.is_finished and second.status.is_finished)
+
+
+def test_empty_check_box_on_a_thumbnail_is_white_on_a_dark_veil(qapp, window, fake_ydl):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QColor, QImage, QRegion
+    from PySide6.QtWidgets import QWidget
+
+    from vidgrab.ui.theme import theme_manager
+
+    view = open_playlist(qapp, window, fake_ydl, 2)
+    view.toggle(0)  # unselect: the empty box shows
+    check = view.cards[0].check
+    assert check.on_media and not check.isChecked()
+    palette = theme_manager().palette
+    assert QColor(palette.media_check_border) == QColor("#FFFFFF")
+    assert QColor(palette.media_check_bg).alpha() == 115  # 0.45
+    image = QImage(check.size(), QImage.Format.Format_ARGB32)
+    image.fill(QColor("#808080"))  # a mid-grey picture under the box
+    check.render(image, QPoint(0, 0), QRegion(), QWidget.RenderFlag.DrawChildren)
+    box_top = (check.height() - check.BOX) // 2
+    edge = max(
+        (image.pixelColor(4 + check.BOX // 2, box_top + dy) for dy in range(3)),
+        key=QColor.lightness,
+    )
+    inside = image.pixelColor(4 + check.BOX // 2, box_top + check.BOX // 2)
+    assert edge.lightness() > 200  # white border
+    assert inside.lightness() < 0x80 * 0.7  # darkened by the veil

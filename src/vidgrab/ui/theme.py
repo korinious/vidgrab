@@ -49,6 +49,9 @@ class Palette:
     error_fg: str
     error_bg: str
     overlay_bg: str  # duration badge on thumbnails
+    # Empty check box drawn over a thumbnail (#AARRGGBB): readable on any picture.
+    media_check_border: str = "#FFFFFF"
+    media_check_bg: str = "#73000000"  # rgba(0, 0, 0, .45)
     accent: str = "#DC2626"
     accent_hover: str = "#B91C1C"
     accent_pressed: str = "#991B1B"
@@ -164,6 +167,7 @@ QLabel[tone="muted"] {{ color: {p.muted}; }}
 QLabel[tone="success"] {{ color: {p.success_fg}; }}
 QLabel[tone="error"] {{ color: {p.error_fg}; }}
 QLabel[tone="warning"] {{ color: {p.warning_fg}; }}
+QLabel[tone="strong"] {{ color: {p.text}; font-weight: 600; }}
 QLabel[role="chip"] {{
     background: {p.chip_bg}; color: {p.muted}; border-radius: {RADIUS_CHIP}px;
     padding: 2px 8px; font-size: 12px;
@@ -184,6 +188,14 @@ QFrame[role="banner"] {{
     background: {p.warning_bg}; border-radius: {RADIUS_CARD}px;
 }}
 QFrame[role="banner"] QLabel {{ color: {p.warning_fg}; }}
+QFrame[role="update-banner"] {{
+    background: {p.surface}; border: 1px solid {p.border}; border-radius: {RADIUS_CARD}px;
+}}
+QLabel[role="banner-title"] {{ font-weight: 600; }}
+QTextBrowser#ReleaseNotes {{
+    background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px;
+    padding: 6px 10px; selection-background-color: {p.accent}; selection-color: {p.on_accent};
+}}
 QFrame[role="error-row"] {{ background: {p.error_bg}; border-radius: 8px; }}
 QFrame[role="error-row"] QLabel {{ color: {p.error_fg}; }}
 QFrame[role="thumb"] {{ background: {p.surface2}; border-radius: 8px; }}
@@ -244,6 +256,13 @@ QPushButton[variant="primary"]:hover {{ background: {p.accent_hover}; }}
 QPushButton[variant="primary"]:pressed {{ background: {p.accent_pressed}; }}
 QPushButton[variant="primary"]:focus {{ border: 2px solid {p.focus}; }}
 QPushButton[variant="primary"]:disabled {{ background: {p.track}; color: {p.muted}; }}
+QPushButton[variant="accent"] {{
+    background: {p.accent}; color: {p.on_accent}; border: 1px solid transparent;
+    font-weight: 600;
+}}
+QPushButton[variant="accent"]:hover {{ background: {p.accent_hover}; }}
+QPushButton[variant="accent"]:pressed {{ background: {p.accent_pressed}; }}
+QPushButton[variant="accent"]:focus {{ border: 2px solid {p.focus}; }}
 QPushButton[variant="warning"] {{
     background: {p.warning_bg}; color: {p.warning_fg}; border: 1px solid transparent;
     font-weight: 600;

@@ -6,9 +6,10 @@ import logging
 import os
 import subprocess
 from dataclasses import replace
+from datetime import date, datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QRect, Qt, QUrl
+from PySide6.QtCore import QEvent, QObject, QRect, Qt, QTimer, QUrl
 from PySide6.QtGui import (
     QActionGroup,
     QCloseEvent,
@@ -34,7 +35,7 @@ from PySide6.QtWidgets import (
 
 from vidgrab import __version__, strings
 from vidgrab.core import archive
-from vidgrab.core.binaries import Binaries
+from vidgrab.core.binaries import Binaries, component_versions
 from vidgrab.core.errors import ErrorKind, UserError
 from vidgrab.core.filenames import sanitize_filename
 from vidgrab.core.jobqueue import DownloadJob, JobGroup
@@ -47,8 +48,19 @@ from vidgrab.core.models import (
     format_duration,
 )
 from vidgrab.core.options import YdlFactory, default_ydl_factory
-from vidgrab.core.settings import Settings, save_settings
+from vidgrab.core.settings import Settings, default_download_dir, save_settings
 from vidgrab.core.trash import move_to_trash
+from vidgrab.core.updates import (
+    CheckResult,
+    CheckStatus,
+    UpdateInfo,
+    format_check_time,
+    now_utc,
+    should_auto_check,
+    should_offer,
+    ytdlp_is_stale,
+    ytdlp_release_date,
+)
 from vidgrab.ui.controller import DownloadController
 from vidgrab.ui.dialogs import SettingsDialog
 from vidgrab.ui.format_options import FormatOptions, option_label
@@ -59,6 +71,7 @@ from vidgrab.ui.queue_widget import GroupHeader, JobWidget
 from vidgrab.ui.selection import SelectedItem, SelectionView
 from vidgrab.ui.theme import CONTENT_MAX_WIDTH, URL_FIELD_HEIGHT, ThemeMode, theme_manager
 from vidgrab.ui.thumbnails import ThumbnailLoader
+from vidgrab.ui.update_banner import BannerState, ReleaseNotesDialog, UpdateBanner
 from vidgrab.ui.widgets import (
     Banner,
     ElidedLabel,
@@ -80,7 +93,12 @@ from vidgrab.ui.window_geometry import (
     minimum_size,
     screen_showing,
 )
-from vidgrab.ui.workers import MetadataWorker, VersionsWorker
+from vidgrab.ui.workers import (
+    MetadataWorker,
+    UpdateCheckWorker,
+    UpdateDownloadWorker,
+    VersionsWorker,
+)
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +107,7 @@ GROUP_COLLAPSE_OVER = 5  # list groups with more videos start collapsed in the q
 GROUP_INDENT = 28  # px: a list's jobs sit indented under its header card
 SCOPE_VIDEO, SCOPE_LIST = "video", "list"
 QUEUE_MIN_HEIGHT = 110  # about one card; small screens need the height elsewhere
+AUTO_UPDATE_CHECK_DELAY_MS = 3000  # the automatic update check waits until the app is up
 
 # Fetch errors about the link itself; shown under the URL field, which turns red.
 URL_ERROR_KINDS = frozenset(
@@ -124,6 +143,7 @@ class MainWindow(QMainWindow):
         ydl_factory: YdlFactory = default_ydl_factory,
         load_thumbnails: bool = True,
         load_versions: bool | None = None,
+        check_updates: bool | None = None,
     ) -> None:
         super().__init__()
         self.settings = settings
@@ -144,6 +164,14 @@ class MainWindow(QMainWindow):
         self._group_children: dict[int, list[int]] = {}
         self._next_group_expanded = True
         self._selecting = False  # the list selection screen is shown
+        self._versions: dict[str, str | None] = {}
+        self._update_check_worker: UpdateCheckWorker | None = None
+        self._update_download_worker: UpdateDownloadWorker | None = None
+        self._settings_dialog: SettingsDialog | None = None
+        self.notes_dialog: ReleaseNotesDialog | None = None
+        self._stale_engine = False  # the bundled yt-dlp is old (amber banner)
+        # Where "Λήψη" saves a new release (the Windows Downloads folder).
+        self.update_download_dir: Path = default_download_dir()
 
         self.theme = theme_manager()
         self.theme.apply(self.prefs.theme)
@@ -163,6 +191,10 @@ class MainWindow(QMainWindow):
         self._update_queue_view()
         if load_thumbnails if load_versions is None else load_versions:
             self._load_versions()
+        # Tests build windows without thumbnails and without any update check.
+        if load_thumbnails if check_updates is None else check_updates:
+            self.set_stale_engine(component_versions().get("yt-dlp"), date.today())
+            QTimer.singleShot(AUTO_UPDATE_CHECK_DELAY_MS, self.auto_check_for_updates)
 
     # --- layout ------------------------------------------------------------------------
     def _build_ui(self) -> None:
@@ -171,7 +203,25 @@ class MainWindow(QMainWindow):
         column = QVBoxLayout(content)
         column.setContentsMargins(24, 18, 24, 14)
         column.setSpacing(12)
-        column.addLayout(self._build_header())
+        # Header, then right under it (6px, not 12, to fit 1366x768): a new version
+        # (neutral banner), or else an old yt-dlp (amber).
+        top = QVBoxLayout()
+        top.setSpacing(6)
+        top.addLayout(self._build_header())
+        column.addLayout(top)
+        self.update_banner = UpdateBanner()
+        self.update_banner.download_requested.connect(self.download_update)
+        self.update_banner.cancel_requested.connect(self.cancel_update_download)
+        self.update_banner.notes_requested.connect(self.show_release_notes)
+        self.update_banner.skip_requested.connect(self.skip_update)
+        self.update_banner.dismissed.connect(self._sync_stale_banner)
+        self.update_banner.open_folder_requested.connect(self._open_downloaded_update)
+        top.addWidget(self.update_banner)
+        self.stale_banner = Banner(closable=True, close_label=strings.BTN_UPDATE_DISMISS)
+        self.stale_banner.setText(strings.STALE_ENGINE)
+        self.stale_banner.hide()
+        self.stale_banner.closed.connect(self._dismiss_stale_engine)
+        top.addWidget(self.stale_banner)
 
         self.warning_banner = Banner()
         self.warning_banner.hide()
@@ -485,6 +535,10 @@ class MainWindow(QMainWindow):
             worker.deleteLater()
 
     def set_versions(self, versions: dict[str, str | None]) -> None:
+        self._versions = dict(versions)
+        if self._settings_dialog is not None:
+            self._settings_dialog.set_versions(self._versions)
+
         def show(name: str) -> str:
             return versions.get(name) or "—"
 
@@ -949,15 +1003,149 @@ class MainWindow(QMainWindow):
         self._save_settings()
 
     def open_settings(self) -> None:
-        dialog = SettingsDialog(self.settings, self, theme=self.theme.mode)
-        if dialog.exec():
-            self.apply_settings(dialog.result_settings())
-            self.set_theme(dialog.result_theme())
+        dialog = SettingsDialog(self.settings, self, theme=self.theme.mode, versions=self._versions)
+        dialog.check_requested.connect(self.check_for_updates_now)
+        self._settings_dialog = dialog
+        try:
+            if dialog.exec():
+                self.apply_settings(dialog.result_settings())
+                self.set_theme(dialog.result_theme())
+        finally:
+            self._settings_dialog = None
 
     def apply_settings(self, settings: Settings) -> None:
+        # The update bookkeeping may have changed while the dialog was open.
+        settings = replace(
+            settings,
+            last_update_check=self.settings.last_update_check,
+            skipped_update_version=self.settings.skipped_update_version,
+        )
         self.settings = settings
         self.controller.set_max_concurrent(settings.max_concurrent)
         self._save_settings()
+
+    # --- updates ---------------------------------------------------------------------
+    def auto_check_for_updates(self, now: datetime | None = None) -> bool:
+        """The check at startup: at most once per 24 hours, unless switched off."""
+        now = now or now_utc()
+        if not should_auto_check(
+            self.settings.auto_update_check, self.settings.last_update_check, now
+        ):
+            return False
+        self.settings = replace(self.settings, last_update_check=format_check_time(now))
+        self._save_settings()
+        self._start_update_check(manual=False)
+        return True
+
+    def check_for_updates_now(self) -> None:
+        """ "Έλεγχος τώρα" in the settings: ignores the 24-hour limit."""
+        if self._settings_dialog is not None:
+            self._settings_dialog.show_check_running()
+        self._start_update_check(manual=True)
+
+    def _start_update_check(self, manual: bool) -> None:
+        if self._update_check_worker is not None:
+            self._update_check_worker.manual |= manual
+            return
+        worker = UpdateCheckWorker(manual, self)
+        worker.finished_check.connect(self._on_update_checked)
+        worker.finished.connect(self._on_update_check_finished)
+        self._update_check_worker = worker
+        worker.start()
+
+    def _on_update_check_finished(self) -> None:
+        worker, self._update_check_worker = self._update_check_worker, None
+        if worker is not None:
+            worker.deleteLater()
+
+    def _on_update_checked(self, result: CheckResult) -> None:
+        manual = self._update_check_worker is not None and self._update_check_worker.manual
+        if self._settings_dialog is not None and manual:
+            self._settings_dialog.show_check_result(result)
+        if result.status is CheckStatus.AVAILABLE and (
+            manual or should_offer(result.update, self.settings.skipped_update_version)
+        ):
+            self.show_update(result.update)
+
+    def show_update(self, update: UpdateInfo) -> None:
+        banner = self.update_banner
+        busy = banner.state in (BannerState.DOWNLOADING, BannerState.DONE)
+        if busy and banner.update_info and banner.update_info.version == update.version:
+            return  # already downloading or downloaded this one
+        if banner.state is not BannerState.DOWNLOADING:
+            banner.show_available(update)
+        self._sync_stale_banner()
+
+    def download_update(self) -> None:
+        update = self.update_banner.update_info
+        if update is None or self._update_download_worker is not None:
+            return
+        worker = UpdateDownloadWorker(update, self.update_download_dir, self)
+        worker.progressed.connect(self.update_banner.set_progress)
+        worker.completed.connect(self.update_banner.show_done)
+        worker.failed.connect(self._on_update_download_failed)
+        worker.finished.connect(self._on_update_download_finished)
+        self._update_download_worker = worker
+        self.update_banner.show_downloading()
+        worker.start()
+
+    def cancel_update_download(self) -> None:
+        if self._update_download_worker is not None:
+            self._update_download_worker.cancel()
+
+    def _on_update_download_failed(self, error: UserError) -> None:
+        if error.kind is ErrorKind.CANCELLED:
+            self.update_banner.back_to_available()
+        else:
+            self.update_banner.show_failed(error)
+
+    def _on_update_download_finished(self) -> None:
+        worker, self._update_download_worker = self._update_download_worker, None
+        if worker is not None:
+            worker.deleteLater()
+
+    def show_release_notes(self) -> ReleaseNotesDialog | None:
+        update = self.update_banner.update_info
+        if update is None:
+            return None
+        self.notes_dialog = ReleaseNotesDialog(update, self)
+        self.notes_dialog.open()  # window-modal, does not block
+        return self.notes_dialog
+
+    def skip_update(self) -> None:
+        """ "Παράλειψη αυτής της έκδοσης": the next version shows the banner again."""
+        update = self.update_banner.update_info
+        if update is not None:
+            self.settings = replace(self.settings, skipped_update_version=update.version)
+            self._save_settings()
+        self.update_banner.hide_banner()
+        self._sync_stale_banner()
+
+    def _open_downloaded_update(self) -> None:
+        if self.update_banner.downloaded is not None:
+            self._open_path(self.update_banner.downloaded, select=True)
+
+    def set_stale_engine(self, ytdlp_version: str | None, today: date) -> bool:
+        """Amber "Η μηχανή λήψης είναι παλιά" when yt-dlp is over 60 days old."""
+        self._stale_engine = ytdlp_is_stale(ytdlp_version, today)
+        released = ytdlp_release_date(ytdlp_version)
+        if self._stale_engine and released is not None:
+            self.stale_banner.setToolTip(
+                strings.STALE_ENGINE_TOOLTIP.format(
+                    version=ytdlp_version, days=(today - released).days
+                )
+            )
+        self._sync_stale_banner()
+        return self._stale_engine
+
+    def _dismiss_stale_engine(self) -> None:
+        self._stale_engine = False  # for this session
+
+    def _sync_stale_banner(self) -> None:
+        """Only one banner at a time: the update banner wins."""
+        self.stale_banner.setVisible(
+            self._stale_engine and self.update_banner.state is BannerState.HIDDEN
+        )
 
     # --- helpers -----------------------------------------------------------------------
     def _open_logs(self) -> None:
@@ -991,4 +1179,9 @@ class MainWindow(QMainWindow):
             worker.wait(2000)
         if self._versions_worker is not None:
             self._versions_worker.wait(2000)
+        if self._update_download_worker is not None:
+            self._update_download_worker.cancel()  # deletes the partial file
+            self._update_download_worker.wait(5000)
+        if self._update_check_worker is not None:
+            self._update_check_worker.wait(2000)
         event.accept()
