@@ -53,6 +53,10 @@ class Settings:
     list_subfolder: bool = True  # "Υποφάκελος με το όνομα της λίστας"
     list_numbering: bool = True  # "Αρίθμηση (01 - τίτλος)"
     skip_downloaded: bool = True  # "Παράλειψη όσων έχω ήδη κατεβάσει" (lists only)
+    # Updates (core/updates.py)
+    auto_update_check: bool = True  # "Αυτόματος έλεγχος για ενημερώσεις"
+    last_update_check: str | None = None  # UTC ISO time of the last automatic check
+    skipped_update_version: str | None = None  # "Παράλειψη αυτής της έκδοσης"
 
     @property
     def cookies(self) -> CookieConfig:
@@ -105,12 +109,18 @@ class Settings:
             log.warning("Unknown cookie source %r in settings", data.get("cookie_source"))
         if isinstance(data.get("cookie_file"), str) and data["cookie_file"]:
             s.cookie_file = data["cookie_file"]
-        for name in ("list_subfolder", "list_numbering", "skip_downloaded"):
+        for name in ("list_subfolder", "list_numbering", "skip_downloaded", "auto_update_check"):
             value = data.get(name)
             if isinstance(value, bool):
                 setattr(s, name, value)
             elif value is not None:
                 log.warning("Ignoring non-boolean %s=%r in settings", name, value)
+        for name in ("last_update_check", "skipped_update_version"):
+            value = data.get(name)
+            if isinstance(value, str) and value.strip():
+                setattr(s, name, value.strip())
+            elif value is not None:
+                log.warning("Ignoring invalid %s=%r in settings", name, value)
         mc = data.get("max_concurrent")
         if isinstance(mc, int) and not isinstance(mc, bool):
             s.max_concurrent = max(MIN_CONCURRENT, min(MAX_CONCURRENT, mc))
