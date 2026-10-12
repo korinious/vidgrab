@@ -5,13 +5,14 @@ on:
     - cron: "17 6 * * 1" # Mondays 06:17 UTC
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   update:
     runs-on: windows-latest
+    permissions:
+      contents: write # push the automation/update-yt-dlp branch
+      pull-requests: write # open the PR
     defaults:
       run:
         shell: pwsh
@@ -21,52 +22,41 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - name: Upgrade yt-dlp in uv.lock
-        run: uv lock --upgrade-package yt-dlp --upgrade-package yt-dlp-ejs
-
-      - name: Check for changes
-        id: diff
         run: |
-          git diff --quiet -- uv.lock
-          if ($LASTEXITCODE -eq 0) {
-            "changed=false" >> $env:GITHUB_OUTPUT
-            Write-Host "yt-dlp is already up to date"
-          } else {
-            "changed=true" >> $env:GITHUB_OUTPUT
-            git diff --stat -- uv.lock
-          }
-          exit 0
+          Copy-Item uv.lock "$env:RUNNER_TEMP/uv.lock.before"
+          uv lock --upgrade-package yt-dlp --upgrade-package yt-dlp-ejs
+
+      # Only a new yt-dlp or yt-dlp-ejs version is an update. uv may rewrite uv.lock for
+      # other reasons (a newer uv bumped "revision" in #6), which must not open a PR.
+      - name: Compare locked versions
+        id: versions
+        run: |
+          uv run --no-project --python 3.12 python scripts/ytdlp_lock_versions.py `
+            "$env:RUNNER_TEMP/uv.lock.before" uv.lock
+          if ($LASTEXITCODE -ne 0) { throw "Could not read the locked versions" }
 
       - name: Install and test
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.versions.outputs.changed == 'true'
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
           uv sync --locked
           uv run pytest
 
-      - name: Read new versions
-        if: steps.diff.outputs.changed == 'true'
-        id: versions
-        run: |
-          $yt = (uv run python -c "from yt_dlp.version import __version__; print(__version__)").Trim()
-          $ejs = (uv run python -c "import yt_dlp_ejs; print(yt_dlp_ejs.version)").Trim()
-          "ytdlp=$yt" >> $env:GITHUB_OUTPUT
-          "ejs=$ejs" >> $env:GITHUB_OUTPUT
-
       - name: Open pull request
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.versions.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
           branch: automation/update-yt-dlp
           delete-branch: true
           add-paths: uv.lock
-          commit-message: "Update yt-dlp to ${{ steps.versions.outputs.ytdlp }}"
-          title: "Update yt-dlp to ${{ steps.versions.outputs.ytdlp }}"
+          commit-message: ${{ steps.versions.outputs.title }}
+          title: ${{ steps.versions.outputs.title }}
           body: |
             Automated weekly update of `uv.lock`.
 
-            - yt-dlp: `${{ steps.versions.outputs.ytdlp }}`
-            - yt-dlp-ejs: `${{ steps.versions.outputs.ejs }}`
+            - yt-dlp: ${{ steps.versions.outputs.ytdlp_change }}
+            - yt-dlp-ejs: ${{ steps.versions.outputs.ejs_change }}
 
             Tests passed on windows-latest before this PR was opened.
             Merge it, then tag a new release so users get the new extractor fixes.
