@@ -143,8 +143,10 @@ them on `PATH`. The frozen app looks in `<app>/_internal/bin/`.
   (`--onedir --windowed`) on windows-latest, bundling pinned ffmpeg/ffprobe/deno
   (SHA256 verified), runs `VidGrab.exe --self-check`, and uploads `VidGrab-<ver>-win64.zip`.
 - Releases: see "Release procedure" below.
-- `.github/workflows/update-ytdlp.yml` runs weekly. It upgrades yt-dlp in `uv.lock`,
-  runs tests, and opens a PR if anything changed.
+- `.github/workflows/update-ytdlp.yml` runs weekly. It upgrades yt-dlp in `uv.lock`, and
+  only if the locked yt-dlp or yt-dlp-ejs version changed (`scripts/ytdlp_lock_versions.py`;
+  a lockfile rewrite such as a new `revision` is not an update) runs tests and opens a PR
+  titled with the old → new versions.
 - To bump a pinned binary, update the URL and SHA256 in `build.yml`.
 
 ## Release procedure
