@@ -151,3 +151,64 @@ class VersionsWorker(QThread):
             "deno": _tool_version(self._binaries.deno, ["--version"], r"deno\s+([\d.]+)"),
         }
         self.ready.emit(versions)
+
+
+class UpdateCheckWorker(QThread):
+    """``core.updates.check_for_update`` off the GUI thread. Never fails: a failed check
+    is a ``CheckResult`` with status FAILED."""
+
+    finished_check = Signal(object)  # CheckResult
+
+    def __init__(self, manual: bool = False, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self.manual = manual  # "Έλεγχος τώρα" in the settings, not the automatic check
+
+    def run(self) -> None:
+        from vidgrab.core.updates import CheckResult, CheckStatus, check_for_update
+
+        try:
+            result = check_for_update()
+        except Exception:  # defensive: check_for_update() already never raises
+            log.exception("Unexpected error in the update check")
+            result = CheckResult(CheckStatus.FAILED)
+        self.finished_check.emit(result)
+
+
+class UpdateDownloadWorker(QThread):
+    """Downloads and verifies a release zip (``core.updates.download_update``)."""
+
+    progressed = Signal(int, int)  # bytes done, total
+    completed = Signal(object)  # Path
+    failed = Signal(object)  # UserError
+
+    def __init__(self, update, dest_dir, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._update = update
+        self._dest_dir = dest_dir
+        self._cancel_event = threading.Event()
+        self._last_emit = 0.0
+
+    def cancel(self) -> None:
+        self._cancel_event.set()
+
+    def _on_progress(self, done: int, total: int) -> None:
+        now = time.monotonic()
+        if done and done < total and now - self._last_emit < PROGRESS_INTERVAL_S:
+            return
+        self._last_emit = now
+        self.progressed.emit(done, total)
+
+    def run(self) -> None:
+        from vidgrab.core.updates import download_update
+
+        try:
+            path = download_update(
+                self._update, self._dest_dir, self._on_progress, self._cancel_event
+            )
+        except UserError as err:
+            self.failed.emit(err)
+        except Exception as exc:
+            log.exception("Unexpected error while downloading the update")
+            self.failed.emit(classify(exc))
+        else:
+            self.completed.emit(path)

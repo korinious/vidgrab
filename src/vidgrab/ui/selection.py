@@ -96,7 +96,7 @@ class EntryCard(QFrame):
 
         self.thumb = Thumbnail(16, 9)
         self.thumb.set_duration(format_duration(entry.duration))
-        self.check = CheckBox(parent=self.thumb)
+        self.check = CheckBox(parent=self.thumb, on_media=True)
         self.check.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # the card itself takes focus
         self.check.setAccessibleName(title)
         self.check.move(4, 4)
@@ -121,7 +121,7 @@ class EntryCard(QFrame):
         self.chips = QHBoxLayout()
         self.chips.setSpacing(6)
         self.state_chip = chip(_STATE_CHIPS.get(entry.state, ""))
-        self.downloaded_chip = chip(strings.CHIP_ALREADY_DOWNLOADED, tone="success")
+        self.downloaded_chip = chip(strings.CHIP_ALREADY_DOWNLOADED)  # neutral grey
         self.chips.addWidget(self.state_chip)
         self.chips.addWidget(self.downloaded_chip)
         self.chips.addStretch(1)

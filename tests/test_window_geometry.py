@@ -215,3 +215,36 @@ def test_selection_scrolls_and_download_bar_stays_visible(qapp, new_window, fake
     pump(qapp)
     assert view.btn_download.mapTo(win, view.btn_download.rect().topLeft()) == before  # sticky
     assert bar_inside_window()
+
+
+@pytest.mark.parametrize("available", [LAPTOP_1366, FULLHD_150], ids=["1366x768", "1080p@150"])
+def test_update_banner_fits_too(qapp, new_window, fake_ydl, available):
+    from vidgrab.core.updates import Asset, UpdateInfo
+
+    win = new_window(available)
+    zip_asset = Asset("VidGrab-9.0.1-win64.zip", "https://github.com/x", 1)
+    win.show_update(UpdateInfo("9.0.1", "", "https://github.com/x", zip_asset, None))
+    fake_ydl.scenario.final_name = "v.mp4"
+    win.url_edit.setText("https://youtu.be/abc123")
+    win.fetch_metadata()
+    pump(qapp, win.btn_fetch.isEnabled)
+    jobs = [win.enqueue_current() for _ in range(3)]
+    pump(qapp, lambda: all(j.status is JobStatus.COMPLETED for j in jobs))
+    assert win.update_banner.isVisible()
+    assert win.page_scroll.verticalScrollBar().maximum() == 0
+    assert win.queue_stack.height() >= 110  # about one card still shows
+
+
+@pytest.mark.parametrize("available", [LAPTOP_1366, FULLHD_150], ids=["1366x768", "1080p@150"])
+def test_update_banner_worst_case_scrolls_a_little(qapp, new_window, fake_ydl, available):
+    # Audio + MP3 shows the bitrate row as well: with the banner, the page may scroll a
+    # little (5 px at 1366x768, 45 px at 1080p@150) but nothing is squashed.
+    from vidgrab.core.updates import Asset, UpdateInfo
+
+    win = new_window(available, quality=Quality.AUDIO)
+    zip_asset = Asset("VidGrab-9.0.1-win64.zip", "https://github.com/x", 1)
+    win.show_update(UpdateInfo("9.0.1", "", "https://github.com/x", zip_asset, None))
+    pump(qapp)
+    assert win.page_scroll.verticalScrollBar().maximum() <= 48
+    assert win.queue_stack.height() >= 110
+    assert win.update_banner.height() <= 56

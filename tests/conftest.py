@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import os
+import urllib.error
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -226,6 +228,48 @@ def recycle_bin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[tuple[P
 
     monkeypatch.setattr(trash, "_send2trash", fake_send2trash)
     return binned
+
+
+class FakeResponse(io.BytesIO):
+    """What ``urllib.request.urlopen`` returns, for the update tests."""
+
+    def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
+        super().__init__(body)
+        self.status = 200
+        self.headers = {"Content-Length": str(len(body)), **(headers or {})}
+
+
+@dataclass
+class FakeHttp:
+    """Stands in for ``urlopen`` in core/updates.py. Unknown URLs are 404.
+
+    ``routes[url]`` is bytes (the body), an exception to raise, or a callable returning
+    either (called on each request).
+    """
+
+    routes: dict[str, Any] = field(default_factory=dict)
+    requests: list[Any] = field(default_factory=list)
+
+    def __call__(self, request: Any, timeout: float | None = None) -> FakeResponse:
+        self.requests.append(request)
+        assert timeout is not None, "every request needs a timeout"
+        url = request.full_url
+        route = self.routes.get(url)
+        if callable(route):
+            route = route()
+        if route is None:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)  # type: ignore[arg-type]
+        if isinstance(route, BaseException):
+            raise route
+        return FakeResponse(route)
+
+
+@pytest.fixture(autouse=True)
+def fake_http(monkeypatch: pytest.MonkeyPatch) -> FakeHttp:
+    """No test ever reaches GitHub: update checks and downloads use this fake."""
+    fake = FakeHttp()
+    monkeypatch.setattr("vidgrab.core.updates.urlopen", fake)
+    return fake
 
 
 @pytest.fixture

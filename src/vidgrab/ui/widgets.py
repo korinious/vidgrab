@@ -193,18 +193,37 @@ class ElidedLabel(QLabel):
 
 
 class Banner(QFrame):
-    """Amber notice with an icon (e.g. "Deno not found")."""
+    """Amber notice with an icon (e.g. "Deno not found"); ``closable`` adds an X."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    closed = Signal()
+
+    def __init__(
+        self, parent: QWidget | None = None, closable: bool = False, close_label: str = ""
+    ) -> None:
         super().__init__(parent)
         self.setProperty("role", "banner")
         self._label = QLabel()
         self._label.setWordWrap(True)
         row = QHBoxLayout(self)
-        row.setContentsMargins(14, 10, 14, 10)
+        row.setContentsMargins(
+            14, 10 if not closable else 0, 14 if not closable else 0, 10 if not closable else 0
+        )
         row.setSpacing(10)
-        row.addWidget(IconLabel("triangle-alert", "warning"), 0, Qt.AlignmentFlag.AlignTop)
+        row.addWidget(
+            IconLabel("triangle-alert", "warning"),
+            0,
+            Qt.AlignmentFlag.AlignVCenter if closable else Qt.AlignmentFlag.AlignTop,
+        )
         row.addWidget(self._label, 1)
+        self.btn_close: IconButton | None = None
+        if closable:
+            self.btn_close = IconButton("x", close_label, "warning")
+            self.btn_close.clicked.connect(self._close)
+            row.addWidget(self.btn_close)
+
+    def _close(self) -> None:
+        self.hide()
+        self.closed.emit()
 
     def text(self) -> str:
         return self._label.text()
@@ -442,8 +461,11 @@ class CheckBox(QAbstractButton):
 
     BOX = 20
 
-    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+    def __init__(
+        self, text: str = "", parent: QWidget | None = None, on_media: bool = False
+    ) -> None:
         super().__init__(parent)
+        self.on_media = on_media  # over a thumbnail: white border on a dark veil
         self.setText(text)
         self.setCheckable(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -482,6 +504,10 @@ class CheckBox(QAbstractButton):
                 round(box.y() + (self.BOX - icon_px) / 2),
                 pm,
             )
+        elif self.on_media:
+            painter.setPen(QPen(QColor(p.media_check_border), 1.5))
+            painter.setBrush(QColor(p.media_check_bg))
+            painter.drawRoundedRect(box.adjusted(0.75, 0.75, -0.75, -0.75), 6, 6)
         else:
             painter.setPen(QPen(QColor(p.muted), 1.5))
             painter.setBrush(QColor(p.surface))

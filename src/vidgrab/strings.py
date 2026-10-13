@@ -29,7 +29,7 @@ LABEL_MAX_CONCURRENT = "Ταυτόχρονες λήψεις:"
 LABEL_DURATION = "Διάρκεια: {duration}"
 LABEL_UPLOADER = "Από: {uploader}"
 LABEL_FETCHING = "Ανάκτηση πληροφοριών…"
-LABEL_NO_PREVIEW = "Επικόλλησε έναν σύνδεσμο και πάτησε «Ανάλυση»."
+LABEL_NO_PREVIEW = "Επικόλλησε έναν σύνδεσμο και πάτησε Enter."
 
 DIALOG_CHOOSE_FOLDER = "Επιλογή φακέλου προορισμού"
 DIALOG_CHOOSE_COOKIE_FILE = "Επιλογή αρχείου cookies.txt"
@@ -263,4 +263,51 @@ STATUS_COOLDOWN = "Αναμονή {seconds}s"
 TOOLTIP_COOLDOWN = (
     "Μικρή παύση ανάμεσα σε λήψεις από την ίδια πλατφόρμα, για λιγότερα μπλοκαρίσματα "
     "(403/429). Η λήψη ξεκινά αυτόματα."
+)
+
+
+# --- Updates (v0.4.0) ---------------------------------------------------------------------
+UPDATE_AVAILABLE = "Διαθέσιμη η VidGrab {version}"
+UPDATE_AVAILABLE_HINT = "Έχεις την {current}."
+BTN_UPDATE_DOWNLOAD = "Λήψη"
+BTN_UPDATE_NOTES = "Τι νέο"
+BTN_UPDATE_SKIP = "Παράλειψη αυτής της έκδοσης"
+BTN_UPDATE_DISMISS = "Κλείσιμο"
+UPDATE_DOWNLOADING = "Λήψη της VidGrab {version}…"
+UPDATE_PROGRESS = "{done} από {total}"
+UPDATE_PROGRESS_UNKNOWN = "{done}"
+UPDATE_DOWNLOADED = "Η νέα έκδοση κατέβηκε"
+UPDATE_DOWNLOADED_HINT = (
+    "Κλείσε το VidGrab, αποσυμπίεσε το «{name}» και άνοιξε το VidGrab.exe από τον νέο φάκελο. "
+    "Οι ρυθμίσεις και το ιστορικό σου μένουν."
+)
+UPDATE_DOWNLOAD_FAILED = "Η λήψη της ενημέρωσης απέτυχε"
+UPDATE_BANNER_NAME = "Ενημέρωση"
+NOTES_TITLE = "Τι νέο στη VidGrab {version}"
+NOTES_EMPTY = "Δεν υπάρχουν σημειώσεις για αυτή την έκδοση."
+BTN_NOTES_ON_GITHUB = "Η σελίδα της έκδοσης"
+BTN_CLOSE = "Κλείσιμο"
+STALE_ENGINE = "Η μηχανή λήψης είναι παλιά. Αν οι λήψεις αποτυγχάνουν, ενημέρωσε το VidGrab."
+STALE_ENGINE_TOOLTIP = "yt-dlp {version}, πριν από {days} ημέρες"
+
+LABEL_UPDATES = "Ενημερώσεις:"
+OPTION_AUTO_UPDATE_CHECK = "Αυτόματος έλεγχος για ενημερώσεις"
+AUTO_UPDATE_CHECK_HINT = (
+    "Μία φορά την ημέρα το πολύ, ρωτά το GitHub ποια είναι η τελευταία έκδοση. "
+    "Δεν στέλνεται κανένα άλλο στοιχείο."
+)
+BTN_CHECK_NOW = "Έλεγχος τώρα"
+CHECK_RUNNING = "Έλεγχος…"
+CHECK_UP_TO_DATE = "Έχεις την τελευταία έκδοση"
+CHECK_AVAILABLE = "Διαθέσιμη η {version}"
+CHECK_FAILED = "Ο έλεγχος δεν ήταν δυνατός. Δοκίμασε ξανά αργότερα."
+LABEL_VERSIONS = "Εκδόσεις:"
+VERSIONS_LINE = "VidGrab {vidgrab} · yt-dlp {ytdlp} · FFmpeg {ffmpeg} · Deno {deno}"
+
+ERR_UPDATE_CHECKSUM_MISSING = (
+    "Η ενημέρωση δεν μπορεί να επαληθευτεί (λείπει το SHA256SUMS.txt), οπότε το αρχείο "
+    "διαγράφηκε. Κατέβασέ την από τη σελίδα Releases ή δοκίμασε ξανά αργότερα."
+)
+ERR_UPDATE_CHECKSUM_MISMATCH = (
+    "Το αρχείο της ενημέρωσης δεν πέρασε τον έλεγχο SHA256 και διαγράφηκε. Δοκίμασε ξανά."
 )

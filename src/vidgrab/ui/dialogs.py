@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -19,12 +20,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vidgrab import strings
+from vidgrab import __version__, strings
 from vidgrab.core import archive
 from vidgrab.core.cookies import COOKIE_SOURCE_LABELS, COOKIE_SOURCES_ORDER
 from vidgrab.core.models import CookieSource
 from vidgrab.core.settings import MAX_CONCURRENT, MIN_CONCURRENT, Settings
+from vidgrab.core.updates import CheckResult, CheckStatus
 from vidgrab.ui.theme import ThemeMode
+from vidgrab.ui.widgets import CheckBox, set_prop
 
 THEME_ORDER = [ThemeMode.AUTO, ThemeMode.LIGHT, ThemeMode.DARK]
 THEME_LABELS = {
@@ -35,11 +38,14 @@ THEME_LABELS = {
 
 
 class SettingsDialog(QDialog):
+    check_requested = Signal()  # "Έλεγχος τώρα"; the window runs the check
+
     def __init__(
         self,
         settings: Settings,
         parent: QWidget | None = None,
         theme: ThemeMode = ThemeMode.AUTO,
+        versions: dict[str, str | None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(strings.DIALOG_SETTINGS_TITLE)
@@ -90,6 +96,28 @@ class SettingsDialog(QDialog):
         history_hint.setProperty("tone", "muted")
         self._update_history()
 
+        # Updates: automatic check, "Έλεγχος τώρα" with the result inline, versions.
+        self.auto_update_check = CheckBox(strings.OPTION_AUTO_UPDATE_CHECK)
+        self.auto_update_check.setChecked(settings.auto_update_check)
+        self.btn_check_now = QPushButton(strings.BTN_CHECK_NOW)
+        self.btn_check_now.setAccessibleName(strings.BTN_CHECK_NOW)
+        self.btn_check_now.clicked.connect(self.check_requested)
+        self.check_result = QLabel()
+        self.check_result.setProperty("tone", "muted")
+        self.check_result.setWordWrap(True)
+        updates_row = QHBoxLayout()
+        updates_row.setContentsMargins(0, 0, 0, 0)
+        updates_row.addWidget(self.auto_update_check)
+        updates_row.addStretch(1)
+        updates_row.addWidget(self.btn_check_now)
+        updates_hint = QLabel(strings.AUTO_UPDATE_CHECK_HINT)
+        updates_hint.setWordWrap(True)
+        updates_hint.setProperty("tone", "muted")
+        self.versions_label = QLabel()
+        self.versions_label.setProperty("tone", "muted")
+        self.versions_label.setWordWrap(True)
+        self.set_versions(versions or {})
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -104,7 +132,12 @@ class SettingsDialog(QDialog):
         form.addRow(strings.LABEL_MAX_CONCURRENT, self.max_concurrent)
         form.addRow(strings.LABEL_HISTORY, history_row)
         form.addRow("", history_hint)
+        form.addRow(strings.LABEL_UPDATES, updates_row)
+        form.addRow("", self.check_result)
+        form.addRow("", updates_hint)
+        form.addRow(strings.LABEL_VERSIONS, self.versions_label)
         form.addRow(buttons)
+        self.check_result.hide()
 
         self.cookie_source.currentIndexChanged.connect(self._sync_enabled)
         self._sync_enabled()
@@ -132,11 +165,42 @@ class SettingsDialog(QDialog):
             cookie_source=self._selected_source(),
             cookie_file=self.cookie_file.text().strip() or None,
             max_concurrent=self.max_concurrent.value(),
+            auto_update_check=self.auto_update_check.isChecked(),
         )
 
     def result_theme(self) -> ThemeMode:
         # QComboBox hands StrEnum item data back as plain str; convert at the boundary.
         return ThemeMode(self.theme_combo.currentData())
+
+    # --- updates ----------------------------------------------------------------------
+    def set_versions(self, versions: dict[str, str | None]) -> None:
+        def show(name: str) -> str:
+            return versions.get(name) or strings.UNKNOWN_VALUE
+
+        self.versions_label.setText(
+            strings.VERSIONS_LINE.format(
+                vidgrab=__version__, ytdlp=show("yt-dlp"), ffmpeg=show("ffmpeg"), deno=show("deno")
+            )
+        )
+
+    def show_check_running(self) -> None:
+        self.btn_check_now.setEnabled(False)
+        self._set_check_result(strings.CHECK_RUNNING, "muted")
+
+    def show_check_result(self, result: CheckResult) -> None:
+        self.btn_check_now.setEnabled(True)
+        if result.status is CheckStatus.AVAILABLE and result.update is not None:
+            text = strings.CHECK_AVAILABLE.format(version=result.update.version)
+            self._set_check_result(text, "strong")
+        elif result.status is CheckStatus.UP_TO_DATE:
+            self._set_check_result(strings.CHECK_UP_TO_DATE, "success")
+        else:
+            self._set_check_result(strings.CHECK_FAILED, "error")
+
+    def _set_check_result(self, text: str, tone: str) -> None:
+        self.check_result.setText(text)
+        set_prop(self.check_result, "tone", tone)
+        self.check_result.show()
 
     # --- download history ------------------------------------------------------------
     def _update_history(self) -> None:

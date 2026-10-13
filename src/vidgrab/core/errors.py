@@ -38,6 +38,8 @@ class ErrorKind(StrEnum):
     POSTPROCESSING = "postprocessing"
     DISK = "disk"
     CANCELLED = "cancelled"
+    UPDATE_CHECKSUM_MISSING = "update_checksum_missing"
+    UPDATE_CHECKSUM_MISMATCH = "update_checksum_mismatch"
     UNKNOWN = "unknown"
 
 
@@ -60,6 +62,8 @@ MESSAGES: dict[ErrorKind, str] = {
     ErrorKind.POSTPROCESSING: strings.ERR_POSTPROCESSING,
     ErrorKind.DISK: strings.ERR_DISK,
     ErrorKind.CANCELLED: strings.ERR_CANCELLED,
+    ErrorKind.UPDATE_CHECKSUM_MISSING: strings.ERR_UPDATE_CHECKSUM_MISSING,
+    ErrorKind.UPDATE_CHECKSUM_MISMATCH: strings.ERR_UPDATE_CHECKSUM_MISMATCH,
     ErrorKind.UNKNOWN: strings.ERR_UNKNOWN,
 }
 

@@ -24,11 +24,14 @@ uv run ruff check .        # lint
 uv run ruff format .       # format
 uv run python -m vidgrab --self-check   # check ffmpeg/ffprobe/deno are found (no GUI)
 python scripts/check_paths.py          # every tracked path is valid on Windows
-uv run python scripts/screenshot.py docs   # docs/screenshot-*.png (main, list, queue group)
+uv run python scripts/screenshot.py docs   # docs/screenshot-*.png (main, list, queue group, update, whatsnew)
 uv run python scripts/make_icon.py         # regenerate ui/assets/vidgrab.ico from ui/logo.py
 ```
 
 Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit `uv.lock`.
+CI pins **uv 0.12.24** (`UV_VERSION` in `build.yml`, also in `update-ytdlp.yml`); `uv.lock` is
+in its format (`revision = 5`). An older uv rewrites it to `revision = 3`, so change the lock
+with that version: `uvx --from uv==0.12.24 uv lock` / `uv add`. A test checks the header.
 
 ## Rules
 
@@ -127,6 +130,26 @@ Add dependencies only with `uv add <pkg>` (or `uv add --dev`), and always commit
 - Settings: JSON at `%APPDATA%\VidGrab\settings.json` (`core/settings.py`).
   Logs: `%LOCALAPPDATA%\VidGrab\logs\vidgrab.log` (starts with the yt-dlp and
   yt-dlp-ejs versions).
+- Updates (`core/updates.py`, no Qt): one unauthenticated GET of
+  `api.github.com/repos/{UPDATE_REPO}/releases/latest` with only `User-Agent: VidGrab/<ver>`;
+  no telemetry, nothing else is ever sent. Drafts, prereleases and releases whose zip is not
+  attached yet are ignored. Any failure (offline, timeout, 404, 403/429, bad JSON) is silent
+  (log only); only "Έλεγχος τώρα" in the settings shows "Ο έλεγχος δεν ήταν δυνατός".
+  Automatic check at most once per 24 h (`last_update_check`, `auto_update_check` in
+  `settings.json`); "Παράλειψη αυτής της έκδοσης" stores `skipped_update_version`.
+- The update download goes to the Downloads folder (`.part`, then " (2)" instead of
+  overwriting) and is accepted only if its SHA256 matches the release's `SHA256SUMS.txt`;
+  a mismatch or missing sums deletes the file and shows an error. Never accept silently.
+  Tests use the autouse `fake_http` fixture (replaces `updates.urlopen`); unknown URLs are 404.
+- UI: `ui/update_banner.py` (one-row neutral banner under the header, "Τι νέο" dialog with
+  Markdown that never loads remote images). The amber "Η μηχανή λήψης είναι παλιά" banner
+  (yt-dlp older than 60 days, from its date version) shows only without an update banner.
+  `MainWindow(check_updates=...)` defaults to `load_thumbnails`, so tests never check.
+- License: VidGrab is GPL-3.0-or-later (`LICENSE`). `THIRD-PARTY-NOTICES.md` lists every
+  bundled component with sources; its FFmpeg configure flags must match `ffmpeg -buildconf`
+  of the bundled build (`scripts/check_ffmpeg_buildconf.py`, run in CI). Python package
+  licenses are collected into the zip by `scripts/third_party_licenses.py`. When FFmpeg is
+  bumped, update the notices (flags, library versions) and `FFMPEG_SRC_URL/SHA256`.
 - Code, identifiers, comments and log messages are in English. Only UI strings are Greek.
 - The version lives in `src/vidgrab/__init__.py` (`__version__`) and in `pyproject.toml`.
   A test checks they match.
@@ -141,7 +164,12 @@ them on `PATH`. The frozen app looks in `<app>/_internal/bin/`.
 - `.github/workflows/build.yml` (push to main, PRs to main, tags, manual) checks paths on
   Linux, runs tests, then builds `VidGrab/` with PyInstaller
   (`--onedir --windowed`) on windows-latest, bundling pinned ffmpeg/ffprobe/deno
-  (SHA256 verified), runs `VidGrab.exe --self-check`, and uploads `VidGrab-<ver>-win64.zip`.
+  (SHA256 verified), runs `VidGrab.exe --self-check`, adds `LICENSE.txt`, the notices and
+  `licenses/`, and uploads `VidGrab-<ver>-win64.zip` with `SHA256SUMS.txt`. The
+  `ffmpeg-source` job downloads the pinned FFmpeg source tarball (SHA256 verified).
+- Workflow security: `permissions: {}` at the top and per job; only `release` (tags only)
+  has `contents: write`. No secrets, no `pull_request_target`, so fork PRs get a read-only
+  token. Every action is pinned to a commit SHA (with the tag in a comment); tests check it.
 - Releases: see "Release procedure" below.
 - `.github/workflows/update-ytdlp.yml` runs weekly. It upgrades yt-dlp in `uv.lock`, and
   only if the locked yt-dlp or yt-dlp-ejs version changed (`scripts/ytdlp_lock_versions.py`;
@@ -157,12 +185,15 @@ releases are created in the GitHub UI:
 1. In a PR: bump the version in both `src/vidgrab/__init__.py` and `pyproject.toml`, and add
    `docs/release-notes/vX.Y.Z.md` (Greek: features and known issues). `test_version.py`
    fails if the notes for the current version are missing. Merge to `main`.
-2. GitHub → Releases → **Create new release** → new tag `vX.Y.Z` on `main`, title
+2. Only **after** the merge (v0.3.0's tag was made 26 s before it and pointed at the old
+   code): GitHub → Releases → **Create new release** → new tag `vX.Y.Z` on `main`, title
    `VidGrab vX.Y.Z`, and **leave the description empty** (pasting loses the Markdown list
    markers). Publish.
 3. The tag starts `build.yml`. It fails early if the tag doesn't match `__version__` or
    the notes file is missing. Then it builds, self-checks, and the `release` job attaches
-   `VidGrab-X.Y.Z-win64.zip` with `gh release upload`. If the release body is empty it
+   `VidGrab-X.Y.Z-win64.zip`, `SHA256SUMS.txt` and `ffmpeg-<ver>.tar.xz` with
+   `gh release upload`. The app offers an update only once the zip is attached; without
+   `SHA256SUMS.txt` its download fails, so never upload the zip alone. If the release body is empty it
    fills it from `docs/release-notes/vX.Y.Z.md` (`gh release edit --notes-file`); a body
    that already has text and the title are never changed. If no release exists (e.g. a
    tag pushed from a local machine), it creates one from the notes file.

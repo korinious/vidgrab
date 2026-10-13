@@ -221,3 +221,10 @@ def test_empty_listing_message_and_not_retryable():
     err = UserError(ErrorKind.EMPTY_LISTING, detail="https://x/list")
     assert err.message == "Δεν βρέθηκαν διαθέσιμα βίντεο σε αυτόν τον σύνδεσμο."
     assert not err.retryable
+
+
+def test_update_checksum_messages():
+    missing = UserError(ErrorKind.UPDATE_CHECKSUM_MISSING)
+    mismatch = UserError(ErrorKind.UPDATE_CHECKSUM_MISMATCH)
+    assert "SHA256SUMS.txt" in missing.message and "διαγράφηκε" in missing.message
+    assert "SHA256" in mismatch.message and "διαγράφηκε" in mismatch.message
